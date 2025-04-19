@@ -108,7 +108,10 @@ We strongly recommend reading the script before use — it is transparent and se
 
 ## 🚀 How to Use
 
-
+### Step 0️⃣ Prepare Your Environment
+- Create a working folder
+- Download the script https://github.com/no84by/bitwarden-vault-cleanup/blob/main/bitwarden_vault_cleanup.py
+- Install Python (if needed)
 
 
 ### Step 1️⃣ Export Your Vaults
