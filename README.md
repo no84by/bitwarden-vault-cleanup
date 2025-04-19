@@ -225,6 +225,19 @@ No problem. You can always:
 
 You're fully in control of what gets imported.
 
+
+### 🔟 Clean Up Your Files (Highly Recommended)
+
+Once you're happy with your cleaned vault and have successfully imported it into Bitwarden:
+
+🧽 **Delete all exported `.json` files** from your computer — both the original and the cleaned version.
+
+These files contain all your credentials in plain text and can be dangerous if left behind.
+
+## 📌 Passwords stored in plaintext are a major security risk.  
+Always remove export files when you're done.
+
+
 ---
 ## 📋 License
 
