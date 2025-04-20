@@ -44,12 +44,18 @@ import json
 import re
 import argparse
 import platform
+import time
+if platform.system() == "Windows":
+    os.system("chcp 65001 >nul")
+    sys.stdout.reconfigure(encoding='utf-8')
+
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-# Timestamp used in output filename
-TIMESTAMP = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+
+
+TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 def clear_terminal():
     os.system('cls' if platform.system() == 'Windows' else 'clear')
@@ -74,10 +80,10 @@ def parse_args_or_prompt():
     if not args.personal_vault:
         print_help_header()
         print("\n[WARNING] Missing required argument: personal_vault")
-        args.personal_vault = input("→ Personal vault file name (and path if not in the same folder): ").strip()
+        args.personal_vault = input("-> Personal vault file name (and path if not in the same folder): ").strip()
 
     if not args.org_vault:
-        response = input("→ Optional org vault file name (press Enter to skip): ").strip()
+        response = input("-> Optional org vault file name (press Enter to skip): ").strip()
         args.org_vault = response if response else None
 
     return args
@@ -135,10 +141,10 @@ NOTES:
 POST-CLEANUP RECOMMENDATIONS:
 
 1. Purge your existing vault for a fresh start: 
-   https://vault.bitwarden.com/#/settings/account → “Purge Vault”
+   https://vault.bitwarden.com/#/settings/account -> “Purge Vault”
 
 2. Import your cleaned JSON:
-   https://vault.bitwarden.com/#/tools/import → Format: JSON
+   https://vault.bitwarden.com/#/tools/import -> Format: JSON
 
 3. If you’re unhappy with the results:
    - Re-import your original vault export
@@ -193,7 +199,7 @@ def normalize_name(entry):
     return normalize_uri(uri).split('.')[0]
 
 def flag_reused_passwords(entries, reused_passwords):
-    flag = "[VaultCleanup] ⚠ This password is reused across multiple sites."
+    flag = "[VaultCleanup] [!] This password is reused across multiple sites."
     
     for entry in entries:
         if 'login' not in entry:
@@ -234,7 +240,7 @@ def clean_entries(entries, folders):
         original_name = entry['name']
         entry['name'] = normalize_name(entry)
         if entry['name'] != original_name:
-            print(f"Renamed {original_name} → {entry['name']} ({entry['id']})")
+            print(f"Renamed {original_name} -> {entry['name']} ({entry['id']})")
 
         if entry.get('folderId') is None:
             folder_id, folder_name = assign_folder_id(entry, folders)
@@ -305,7 +311,6 @@ def deduplicate(entries, compromised_passwords):
         if len(group) == 1:
             final_entries.append(group[0])
             continue
-
         print("\n--------------------------------------------\n")
         print(f"Evaluating group:\n {uri}\n  Username: {username}\n  Entries: {len(group)}")
 
@@ -320,7 +325,7 @@ def deduplicate(entries, compromised_passwords):
             kept = group[0]
             final_entries.append(kept)
             removed += len(group) - 1
-            print(f"→ Exact duplicates. Kept {kept['name']} ({kept['id']})")
+            print(f"-> Exact duplicates. Kept {kept['name']} ({kept['id']})")
             continue
 
         candidates = sorted(group, key=lambda e: (
@@ -353,14 +358,14 @@ def deduplicate(entries, compromised_passwords):
         final_entries.append(best)
         merged += len(group) - 1
 
-        print(f"→ Merged {len(group)} entries into: {best['name']} ({best['id']})")
-        print(f"   └─ Total merged URIs: {len(merged_uris)}")
+        print(f"-> Merged {len(group)} entries into: {best['name']} ({best['id']})")
+        print(f"   |__ Total merged URIs: {len(merged_uris)}")
         if best.get('notes'):
-            print(f"   └─ Notes retained ({len(best['notes'].splitlines())} lines)")
+            print(f"   |__ Notes retained ({len(best['notes'].splitlines())} lines)")
 
     ungrouped = [e for e in entries if e['id'] not in grouped_entry_ids]
     if ungrouped:
-        print(f"→ {len(ungrouped)} login entries were ungrouped and added to final output.")
+        print(f"-> {len(ungrouped)} login entries were ungrouped and added to final output.")
         final_entries.extend(ungrouped)
 
     return final_entries, ambiguous, merged, removed
@@ -372,7 +377,7 @@ def print_folder_breakdown(entries, folders):
     folder_counter = defaultdict(int)
 
     for e in entries:
-        if e.get('type') == 1:  # Only count login entries
+        if e.get('type') == 1: 
             folder_id = e.get('folderId')
             name = folder_map.get(folder_id, "[no folder]")
             folder_counter[name] += 1
@@ -435,7 +440,7 @@ def exclude_org_dupes(personal_entries, org_ids):
     kept = []
     for entry in personal_entries:
         if entry['id'] in org_ids:
-            print(f"→ Removed personal entry already in org vault: {entry['name']} ({entry['id']})\n")
+            print(f"-> Removed personal entry already in org vault: {entry['name']} ({entry['id']})\n")
         else:
             kept.append(entry)
     return kept
@@ -444,7 +449,6 @@ def exclude_org_dupes(personal_entries, org_ids):
 # === Main script execution ===
 if __name__ == "__main__":
     args = parse_args_or_prompt()
-
     personal_data = load_vault(args.personal_vault)
     org_data = load_vault(args.org_vault) if args.org_vault else {}
 
@@ -454,10 +458,11 @@ if __name__ == "__main__":
     org_items = org_data.get('items', []) if org_data else []
     org_ids = {entry['id'] for entry in org_items} if org_items else set()
 
-    print("\n[INFO] Starting vault clean-up...")
-
     cleaned_personal, skipped_entries = clean_entries(personal_items, folders)
     compromised_passwords = index_passwords(cleaned_personal + org_items)
+
+    print("\n[INFO] Starting vault clean-up...", flush=True)
+    time.sleep(1) 
 
     reused_counter = Counter()
     for entry in cleaned_personal + org_items:
