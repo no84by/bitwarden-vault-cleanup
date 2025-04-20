@@ -206,6 +206,10 @@ Help:
 python bitwarden_vault_cleanup.py --help
 ```
 
+Output to file instead of on the terminal screen:
+```powershell
+python bitwarden_vault_cleanup.py vault_export.json vault_org_export.json  > output.log
+```
 
 
 ### Step 6️⃣ Review the Output
@@ -263,6 +267,8 @@ Assigned folder random.alias (91cbbeb9-45ee-4299-b8ab-ab1234cd4ae3) to zapier.co
 Assigned folder random.alias (91cbbeb9-45ee-4299-b8ab-ab1234cd4ae3) to zapier.com (c56fc854-89b7-482b-a95c-c9d567874778)
 Assigned folder firstname.lastname (91cbbeb9-45ee-4299-b8ab-ab1234cd4ae3) to zapier.com (9a49fbeb-42f2-45fc-92f3-c9d56787682c)
 Assigned folder firstname.lastname (91cbbeb9-45ee-4299-b8ab-ab1234cd4ae3) to zapier.com (24ab6c50-59e0-45e3-a206-c9d567879a53)
+
+[INFO] Starting vault clean-up...
 
 --------------------------------------------
 
