@@ -88,9 +88,7 @@ All decision-making is logged visibly in the terminal, and a summary is printed 
 ## 📋 Prerequisites
 
 - Python 3.7 or newer (https://www.python.org/downloads)
-- One or more Bitwarden vault exports in **JSON** format  
-  ⚠️ **Do NOT choose “JSON (Encrypted)”**
-
+- One or more Bitwarden vault exports files in **JSON** format (unencrypted)
 
 ## 🔐 Privacy & Security
 
@@ -149,7 +147,7 @@ Export your vault(s) using the official Bitwarden web vault:
   `https://vault.bitwarden.com/#/tools/export`
 
 - Organization Vault (if applicable, and only with vault admin rights):  
-  `https://vault.bitwarden.com/#/organizations/<ORG-ID>/settings/tools/export`
+  `https://vault.bitwarden.com/#/organizations/<YOUR-ORG-ID>/settings/tools/export`
 
 > ⚠️ Choose the **“JSON”** format — **NOT** “JSON (Encrypted)”
 
@@ -402,13 +400,13 @@ Final kept entries (for import):                     1277
                • admin(17)
                • cka12V31B(16)
 
-[INFO] Cleaned vault written to: vault_export_cleanned_up_YYYY_MM_DD_HH_MM_SS.json
+[INFO] Cleaned vault written to: originalfilename_cleanned_up_YYYYMMDD_HHMMSS.json
 
 PS C:\Users\username\Downloads\Bitwarden>
 ```
 </details>
 
-The script creates in the same folder a new JSON file named like: `vault_export_cleanned_up_YYYY_MM_DD_HH_MM_SS.json`
+The script creates in the same folder a new JSON file named like: `originalfilename_cleanned_up_YYYYMMDD_HHMMSS`
 
 
 
