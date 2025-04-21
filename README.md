@@ -25,7 +25,8 @@ This becomes especially problematic when:
 ## ✅ What This Script Does
 
 - 📦 Processes **Bitwarden JSON (Decrypted)** exports
-- 🧠 Identifies and removes **identical entries** and applies a Deduplication algorithm to
+- 🏷️ Automatically populates entires' "name" fields using a domain extracted from each entry’s "uri"
+- 🧠 Identifies and removes **identical entries** and applies a Deduplication algorithm to ⤵
 - 🔄 Merge multiple related web and mobile app logins (e.g., `com.app` + `www.website`)
 - 🗂 Assigns entries to folders based on usernames (if matching folder names already exist in the vault)
 - 🏢 Removes entries from the personal vault that also exist in an organization vault (if export provided)
