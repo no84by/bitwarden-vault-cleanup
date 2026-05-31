@@ -3,10 +3,9 @@ Python script to clean, normalize, and deduplicate Bitwarden vault exports.  Mer
 
 **Who this is for — the simple, entry-level option.** One file, download and run. No install,
 no CLI to learn, no accounts. You export your vault as JSON from the web vault, run the script,
-re-import the cleaned file. If you are comfortable in a terminal and want *more* — in-place
-cleanup with no purge+reimport, or two-way sync between two vaults — use the advanced sibling
-**[bw-vault-tools](https://github.com/no84by/bw-vault-tools)**. Same dedup algorithm at the
-core; different audience.
+re-import the cleaned file. For more automation, see the rest of the family: **CLI** in-place dedup and **Auto** two-way
+sync live in [bw-vault-tools](https://github.com/no84by/bw-vault-tools). This tool is the
+**Manual** branch — one file, no install, no terminal needed.
 
 > **v2.1 (2026-05)** — updated for the Bitwarden 2026.x export (SSH-key type 5 + passkey
 > detection/guard) and hardened for safety (rejects bad input, tolerates null URIs, 0600
@@ -49,6 +48,25 @@ This becomes especially problematic when:
 - Flags reused passwords as **potentially compromised** (in the notes field of each entry, visible in Bitwarden)
 - Outputs a clean, import-ready JSON file
 - **Runs entirely locally** — no cloud services, no external logging
+
+## Aggregate passwords from your browsers (optional)
+
+Run with `--aggregate` in a terminal. The script:
+- detects which browsers are installed — by checking only whether their profile folder exists;
+  it never opens, reads, or decrypts any browser password store,
+- offers to aggregate them plus your Bitwarden export into one cleaned vault,
+- walks you through each browser's own "Export passwords" step and picks up the CSV from your
+  Downloads folder,
+- merges everything and deduplicates it into one import-ready JSON.
+
+Your browser passwords are only ever read from files YOU export. Nothing is read from the
+encrypted browser stores. See the SECURITY note in COMPATIBILITY.md.
+
+This is the **manual** branch of a three-tool family (same dedup core, escalating automation):
+- **Manual** — this tool: file in -> cleaned file out; you export/import by hand.
+- **CLI** — [bw-vault-tools](https://github.com/no84by/bw-vault-tools) `bw-dedup`: drives the
+  `bw` CLI for in-place delta dedup (no purge+reimport).
+- **Auto** — bw-vault-tools `bw-sync`: autonomous reversible two-way vault sync.
 
 ## Deduplication Logic
 

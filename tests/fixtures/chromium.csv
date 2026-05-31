@@ -1,0 +1,3 @@
+name,url,username,password,note
+Example,https://example.com,alice,pw1,hello
+NoUrlRow,,bob,pw2,

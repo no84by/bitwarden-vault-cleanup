@@ -67,6 +67,8 @@ import re
 import argparse
 import platform
 import time
+import csv
+import uuid
 if platform.system() == "Windows":
     os.system("chcp 65001 >nul")
     sys.stdout.reconfigure(encoding='utf-8')
@@ -97,6 +99,8 @@ def parse_args_or_prompt():
     parser.add_argument('personal_vault', nargs='?', help='Path to personal Bitwarden vault export (JSON)')
     parser.add_argument('org_vault', nargs='?', help='Optional path to organization Bitwarden vault export (JSON)')
     parser.add_argument('--dry-run', action='store_true', help='Preview changes without saving output')
+    parser.add_argument('--aggregate', action='store_true',
+                        help='Detect installed browsers and aggregate their exports + the vault')
     parser.add_argument('--help', action='store_true', help='Show step-by-step usage help')
 
     args = parser.parse_args()
@@ -105,7 +109,7 @@ def parse_args_or_prompt():
         print_detailed_help()
         sys.exit(0)
 
-    if not args.personal_vault:
+    if not args.personal_vault and not args.aggregate:
         if not sys.stdin.isatty():
             sys.exit("[ERROR] No personal vault path given and stdin is not interactive. "
                      "Pass the export path as an argument.")
@@ -207,6 +211,307 @@ def load_vault(file_path):
     except json.JSONDecodeError:
         print(f"\n[ERROR] File is not valid JSON: '{file_path}'")
         sys.exit(1)
+
+def classify_export(path):
+    """Sniff a file's export kind by content (not filename). Returns one of
+    'bitwarden_json', 'chromium_csv', 'firefox_csv', 'safari_csv', or None."""
+    try:
+        with open(path, 'r', encoding='utf-8-sig', errors='replace') as f:
+            head = f.read(4096)
+            if head.lstrip().startswith('{'):
+                if '"items"' not in head:
+                    head += f.read(1_000_000)     # large folders preamble before items
+                return 'bitwarden_json' if '"items"' in head else None
+    except OSError:
+        return None
+    first_line = head.splitlines()[0].lower() if head.splitlines() else ''
+    cols = {c.strip().strip('"') for c in first_line.split(',')}
+    if {'url', 'username', 'password', 'httprealm'} <= cols:
+        return 'firefox_csv'
+    if {'title', 'url', 'username', 'password'} <= cols:
+        return 'safari_csv'
+    if {'name', 'url', 'username', 'password'} <= cols:
+        return 'chromium_csv'
+    return None
+
+def scan_for_exports(dirs):
+    """Return [(path, kind)] for files in `dirs` recognized as exports. Unknown files skipped."""
+    seen = set()
+    out = []
+    for d in dirs:
+        if not d or not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not name.lower().endswith(('.csv', '.json')):
+                continue
+            path = os.path.realpath(os.path.join(d, name))
+            if path in seen:
+                continue
+            seen.add(path)
+            kind = classify_export(path)
+            if kind:
+                out.append((path, kind))
+    return out
+
+# column maps: kind -> (name_col, url_col, user_col, pass_col, note_col, source_label)
+_CSV_SCHEMA = {
+    "chromium_csv": ("name", "url", "username", "password", "note", "chromium"),
+    "firefox_csv": (None, "url", "username", "password", None, "firefox"),
+    "safari_csv": ("title", "url", "username", "password", "notes", "safari"),
+}
+
+
+def csv_to_items(path, kind):
+    """Map a recognized browser CSV to Bitwarden login items (one per row, fresh uuid id)."""
+    name_c, url_c, user_c, pass_c, note_c, source = _CSV_SCHEMA[kind]
+    items = []
+    with open(path, 'r', encoding='utf-8-sig', errors='replace', newline='') as f:
+        reader = csv.DictReader(f)
+        # lowercased column name -> original fieldname, built once
+        by_lower = {(fn or '').strip().lower(): fn for fn in (reader.fieldnames or [])}
+
+        def get(row, col):
+            if not col:
+                return ''
+            orig = by_lower.get(col)
+            return (row.get(orig) or '').strip() if orig else ''
+        for row in reader:
+            url = get(row, url_c)
+            name = get(row, name_c) or normalize_uri(url) or "(imported)"
+            note = get(row, note_c)
+            tag = f"[source: {source}]"
+            notes = (note + "\n" + tag).strip() if note else tag
+            items.append({
+                "id": str(uuid.uuid4()),
+                "organizationId": None,
+                "folderId": None,
+                "type": 1,
+                "name": name,
+                "notes": notes,
+                "login": {
+                    "uris": [{"uri": url, "match": None}] if url else None,
+                    "username": get(row, user_c) or None,
+                    "password": get(row, pass_c) or None,
+                    "totp": None,
+                    "fido2Credentials": [],
+                },
+            })
+    return items
+
+
+# Presence-only detection: per-OS profile dirs (relative to the user's home / appdata).
+# We check ONLY that the directory exists. We never open, read, copy, or decrypt any file in it.
+BROWSERS = {
+    "firefox":  {"linux": ".mozilla/firefox", "darwin": "Library/Application Support/Firefox",
+                 "windows": "AppData/Roaming/Mozilla/Firefox"},
+    "chrome":   {"linux": ".config/google-chrome", "darwin": "Library/Application Support/Google/Chrome",
+                 "windows": "AppData/Local/Google/Chrome/User Data"},
+    "edge":     {"linux": ".config/microsoft-edge", "darwin": "Library/Application Support/Microsoft Edge",
+                 "windows": "AppData/Local/Microsoft/Edge/User Data"},
+    "brave":    {"linux": ".config/BraveSoftware/Brave-Browser",
+                 "darwin": "Library/Application Support/BraveSoftware/Brave-Browser",
+                 "windows": "AppData/Local/BraveSoftware/Brave-Browser/User Data"},
+    "opera":    {"linux": ".config/opera", "darwin": "Library/Application Support/com.operasoftware.Opera",
+                 "windows": "AppData/Roaming/Opera Software/Opera Stable"},
+    "vivaldi":  {"linux": ".config/vivaldi", "darwin": "Library/Application Support/Vivaldi",
+                 "windows": "AppData/Local/Vivaldi/User Data"},
+    "safari":   {"darwin": "Library/Safari"},
+}
+
+_OS_KEY = {"Linux": "linux", "Darwin": "darwin", "Windows": "windows"}
+
+# Which CSV schema each browser's exporter produces.
+_BROWSER_CSV_KIND = {"chrome": "chromium_csv", "edge": "chromium_csv", "brave": "chromium_csv",
+                     "opera": "chromium_csv", "vivaldi": "chromium_csv",
+                     "firefox": "firefox_csv", "safari": "safari_csv"}
+
+
+def detect_browsers(home=None):
+    """Return the set of installed browsers, by profile-directory EXISTENCE only.
+    Never reads any file inside those directories."""
+    home = home or os.path.expanduser("~")
+    osk = _OS_KEY.get(platform.system())
+    found = set()
+    if not osk:
+        return found
+    for name, paths in BROWSERS.items():
+        rel = paths.get(osk)
+        if rel and os.path.isdir(os.path.join(home, rel)):
+            found.add(name)
+    return found
+
+
+_EXPORT_STEPS = {
+    "chrome":  "Chrome: Settings -> Autofill and passwords -> Google Password Manager -> "
+               "Settings -> Export passwords. Save the CSV to your Downloads folder.",
+    "edge":    "Edge: Settings -> Profiles -> Passwords -> (...) -> Export passwords. "
+               "Save the CSV to your Downloads folder.",
+    "brave":   "Brave: Settings -> Passwords and autofill -> Password Manager -> Settings -> "
+               "Export passwords. Save the CSV to your Downloads folder.",
+    "opera":   "Opera: Settings -> Privacy & security -> Passwords -> (...) -> Export passwords. "
+               "Save the CSV to your Downloads folder.",
+    "vivaldi": "Vivaldi: Settings -> Passwords -> Export passwords. Save the CSV to Downloads.",
+    "firefox": "Firefox: menu -> Passwords -> (...) menu (top-right) -> Export Logins. "
+               "Save the CSV to your Downloads folder.",
+    "safari":  "Safari/macOS: open the Passwords app -> File -> Export Passwords. "
+               "Save the CSV to your Downloads folder. (No automatic detection on Safari.)",
+}
+
+
+def downloads_dir():
+    """Downloads directory (expanduser resolves USERPROFILE on Windows); falls back to CWD."""
+    cand = os.path.join(os.path.expanduser("~"), "Downloads")
+    return cand if os.path.isdir(cand) else os.getcwd()
+
+
+def export_instructions(browser):
+    return _EXPORT_STEPS.get(browser, f"{browser}: use its built-in 'Export passwords' to CSV.")
+
+
+def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll=1.0, info=print):
+    """Guide the user to export `browser`, then return a path to the produced file (or None).
+
+    Dependency-injected for tests: `watch(kinds, since) -> path|None` polls the filesystem,
+    `ask(prompt) -> str` reads a line, `now() -> float` is the clock, `info(msg)` prints.
+    In production these are real (a Downloads watcher, ui.ask, time.time(), ui.info)."""
+    info("\n" + export_instructions(browser))
+    start = now()
+    while now() - start < timeout:
+        hit = watch(expected_kinds, start)
+        if hit:
+            info(f"  detected export: {os.path.basename(hit)}")
+            return hit
+        if poll:
+            time.sleep(poll)
+    resp = ask(f"  No {browser} export detected. Paste a path, or press Enter to skip: ").strip()
+    if resp and os.path.isfile(resp):
+        return resp
+    return None
+
+
+def _real_watch(expected_kinds, since):
+    """Return the path of the NEWEST CSV in Downloads/CWD modified after `since` whose sniffed
+    kind is in expected_kinds, else None."""
+    candidates = []
+    for d in (downloads_dir(), os.getcwd()):
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            if not name.lower().endswith('.csv'):
+                continue
+            p = os.path.join(d, name)
+            try:
+                mtime = os.path.getmtime(p)
+            except OSError:
+                continue
+            if mtime < since:
+                continue
+            if classify_export(p) in expected_kinds:
+                candidates.append((mtime, os.path.realpath(p)))
+    return max(candidates)[1] if candidates else None
+
+
+def _items_from(path, kind):
+    if kind == "bitwarden_json":
+        data = load_vault(path)
+        return data.get("items", []) if isinstance(data, dict) else []
+    return csv_to_items(path, kind)
+
+
+def aggregate_sources(found, installed, confirm, collect):
+    """Detect-and-offer orchestrator. Returns (browser_items, per_source_counts).
+
+    `found`     : [(path, kind)] already on disk (from scan_for_exports)
+    `installed` : set of browser names to offer guided export for
+    `confirm(found, installed) -> bool` : the aggregate? prompt
+    `collect(browser, expected_kinds) -> path|None` : guided wait-for-export for a browser
+    A found Bitwarden JSON is COUNTED but its items are NOT returned (the classic path loads it).
+    All side-effecting deps are injected so the orchestrator is unit-testable."""
+    if not confirm(found, installed):
+        return [], {}
+
+    paths = list(found)
+    present_kinds = {k for _, k in found}
+    # One file per CSV schema is enough: same-schema browsers (e.g. all Chromium variants) share
+    # the column layout and dedup collapses identical rows. Skip a kind we already have a file for.
+    for b in sorted(installed):
+        kind = _BROWSER_CSV_KIND.get(b)
+        if not kind or kind in present_kinds:   # unknown, or we already have a file of this kind
+            continue
+        hit = collect(b, {kind})
+        if hit:
+            paths.append((hit, classify_export(hit) or kind))
+            present_kinds.add(kind)
+
+    items, counts = [], {}
+    for path, kind in paths:
+        got = _items_from(path, kind)
+        counts[kind] = counts.get(kind, 0) + len(got)
+        if kind != "bitwarden_json":            # bitwarden JSON is loaded by the classic path
+            items.extend(got)
+    return items, counts
+
+
+class _PlainUI:
+    """Stdlib-only renderer. The always-available baseline."""
+    def heading(self, text):
+        print("\n" + text)
+        print("-" * len(text))
+    def info(self, text):
+        print(text)
+    def warn(self, text):
+        print("[!] " + text, file=sys.stderr)
+    def rule(self):
+        print("-" * 60)
+    def ask(self, prompt):
+        return input(prompt)
+    def confirm(self, prompt):
+        return input(prompt.rstrip() + " [y/N]: ").strip().lower() == "y"
+    def table(self, title, rows):
+        if title:
+            print("\n" + title + ":")
+        for row in rows:
+            print("   " + "  ".join(str(c) for c in row))
+
+
+class _RichUI:
+    """Prettier renderer used only when `rich` is installed. Same interface as _PlainUI."""
+    def __init__(self, rich):
+        from rich.console import Console
+        self._c = Console()
+        self._rich = rich
+    def heading(self, text):
+        self._c.rule(f"[bold]{text}")
+    def info(self, text):
+        self._c.print(text)
+    def warn(self, text):
+        self._c.print(f"[yellow]Warning:[/] {text}")
+    def rule(self):
+        self._c.rule()
+    def ask(self, prompt):
+        return self._c.input(prompt)
+    def confirm(self, prompt):
+        from rich.prompt import Confirm
+        return Confirm.ask(prompt, default=False)
+    def table(self, title, rows):
+        from rich.table import Table
+        t = Table(title=title)
+        for i in range(max((len(r) for r in rows), default=0)):
+            t.add_column(str(i))
+        for r in rows:
+            t.add_row(*(str(c) for c in r))
+        self._c.print(t)
+
+
+def get_ui():
+    """Return a _RichUI if `rich` is importable, else the stdlib _PlainUI. rich is optional and
+    is never installed by this tool."""
+    try:
+        import rich
+        return _RichUI(rich)
+    except Exception:
+        return _PlainUI()
+
 
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
@@ -479,7 +784,7 @@ def print_summary(original, final, compromised, merged, removed, org_count, reus
 
 
 def get_output_filename(original):
-    base = Path(original).stem
+    base = Path(original).stem if original else "aggregated-vault"
     return f"{base}_cleaned_up_{TIMESTAMP}.json"
 
 def exclude_org_dupes(personal_entries, org_ids):
@@ -507,14 +812,52 @@ def write_output(output_file, personal_data):
 
 def main():
     args = parse_args_or_prompt()
-    personal_data = load_vault(args.personal_vault)
-    validate_vault(personal_data, args.personal_vault)
+    aggregated_items = []
+    if args.aggregate:
+        ui = get_ui()
+        installed = detect_browsers()
+        found = scan_for_exports([downloads_dir(), os.getcwd()])
+
+        def _confirm(found, installed):
+            if not sys.stdin.isatty():
+                ui.info("(non-interactive: browser aggregation skipped)")
+                return False
+            ui.heading("Aggregate passwords from your browsers")
+            ui.table("Detected installed browsers",
+                     [[b] for b in sorted(installed)] or [["(none)"]])
+            ui.table("Existing export files found",
+                     [[os.path.basename(p), k] for p, k in found] or [["(none)", ""]])
+            return ui.confirm("Aggregate browser exports + a Bitwarden export into one "
+                              "cleaned vault?")
+
+        def _collect(browser, kinds):
+            return collect_source(browser, expected_kinds=kinds, watch=_real_watch,
+                                  ask=ui.ask, now=time.time, info=ui.info)
+
+        aggregated_items, agg_counts = aggregate_sources(found, installed, _confirm, _collect)
+        if agg_counts:
+            ui.table("Aggregated", [[k, v] for k, v in agg_counts.items()])
+        # if a Bitwarden JSON was found and no vault was given, use it as the base
+        if not args.personal_vault and sys.stdin.isatty():
+            bw_jsons = [p for p, k in found if k == "bitwarden_json"]
+            if bw_jsons and ui.confirm(f"Use {os.path.basename(bw_jsons[0])} as the Bitwarden base vault?"):
+                args.personal_vault = bw_jsons[0]
+                if len(bw_jsons) > 1:
+                    ui.warn(f"Multiple Bitwarden exports found; using {os.path.basename(bw_jsons[0])}. "
+                            f"Others ignored: {[os.path.basename(p) for p in bw_jsons[1:]]}.")
+
+    if args.personal_vault:
+        personal_data = load_vault(args.personal_vault)
+        validate_vault(personal_data, args.personal_vault)
+    else:
+        # only reached when aggregating with no Bitwarden base found -> synthesize empty base
+        personal_data = {"encrypted": False, "folders": [], "items": []}
     org_data = load_vault(args.org_vault) if args.org_vault else {}
     if org_data:
         validate_vault(org_data, args.org_vault)
 
     folders = personal_data.get('folders', [])
-    personal_items = personal_data.get('items', [])
+    personal_items = personal_data.get('items', []) + aggregated_items
     non_login_items = [e for e in personal_items if 'login' not in e]
     # Passkey-bearing logins are EXCLUDED from dedup (so a merge can never drop a passkey)
     # and passed through untouched. Only non-passkey logins are deduplicated.
