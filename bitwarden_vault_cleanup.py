@@ -2,10 +2,14 @@
 # bitwarden_vault_cleanup.py
 
 """
-Bitwarden Vault Cleanup Script (v2.0)
+Bitwarden Vault Cleanup Script (v2.0.1)
 ─────────────────────────────────────
 
 This script helps clean, normalize, and deduplicate Bitwarden vault exports.
+
+v2.0.1 (2026-05) — fix (issue #1): login items without a URI (and any item the
+  cleaner cannot deduplicate) are now preserved unchanged in the output instead of
+  being silently dropped.
 
 v2.0 (2026-05) — compatibility update for the Bitwarden 2026.x export schema:
   - SSH-key items (type 5) are now labelled, counted, and passed through untouched.
@@ -418,7 +422,7 @@ def print_summary(original, final, compromised, ambiguous, merged, removed, org_
     print(f"Duplicate entries merged:                            {merged}")
     print(f"Duplicate entries removed:                           {removed}")
     print(f"Ambiguous entries retained:                          {len(ambiguous)}")
-    print(f"Ommited login entries that slipped cleanup:          {skipped}")
+    print(f"Login entries kept as-is (no URI, not deduped):      {skipped}")
     print(f"Passkey logins passed through (NOT deduped):          {passkey_count}")
     print(f"Final kept entries (for import):                     {final}")
     print("")
@@ -516,7 +520,12 @@ if __name__ == "__main__":
     deduped, ambiguous, merged, removed = deduplicate(cleaned_personal, compromised_passwords)
     flag_reused_passwords(deduped, compromised_passwords)
 
-    passthrough = non_login_items + passkey_items
+    # Preserve, unchanged, every item the cleaner could not deduplicate:
+    #   - non_login_items : items with no login block (notes, cards, identities, SSH keys)
+    #   - passkey_items   : passkey-bearing logins (never deduped; see has_passkey)
+    #   - skipped_entries : login items without a URI (cannot be grouped) — issue #1
+    # Anything not deduplicable must still round-trip to the output, never be dropped.
+    passthrough = non_login_items + passkey_items + skipped_entries
     type_counter = Counter(str(e.get('type', 'unknown')) for e in deduped + passthrough)
 
 print_summary(
