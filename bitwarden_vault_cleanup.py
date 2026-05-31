@@ -338,6 +338,36 @@ def detect_browsers(home=None):
     return found
 
 
+_EXPORT_STEPS = {
+    "chrome":  "Chrome: Settings -> Autofill and passwords -> Google Password Manager -> "
+               "Settings -> Export passwords. Save the CSV to your Downloads folder.",
+    "edge":    "Edge: Settings -> Profiles -> Passwords -> (...) -> Export passwords. "
+               "Save the CSV to your Downloads folder.",
+    "brave":   "Brave: Settings -> Passwords and autofill -> Password Manager -> Settings -> "
+               "Export passwords. Save the CSV to your Downloads folder.",
+    "opera":   "Opera: Settings -> Privacy & security -> Passwords -> (...) -> Export passwords. "
+               "Save the CSV to your Downloads folder.",
+    "vivaldi": "Vivaldi: Settings -> Passwords -> Export passwords. Save the CSV to Downloads.",
+    "firefox": "Firefox: menu -> Passwords -> (...) menu (top-right) -> Export Logins. "
+               "Save the CSV to your Downloads folder.",
+    "safari":  "Safari/macOS: open the Passwords app -> File -> Export Passwords. "
+               "Save the CSV to your Downloads folder. (No automatic detection on Safari.)",
+}
+
+
+def downloads_dir():
+    """OS-aware Downloads directory; falls back to CWD if it does not exist."""
+    if platform.system() == "Windows":
+        cand = os.path.join(os.path.expanduser("~"), "Downloads")
+    else:
+        cand = os.path.join(os.path.expanduser("~"), "Downloads")
+    return cand if os.path.isdir(cand) else os.getcwd()
+
+
+def export_instructions(browser):
+    return _EXPORT_STEPS.get(browser, f"{browser}: use its built-in 'Export passwords' to CSV.")
+
+
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
     lossy 'cleaned' file the user re-imports over a purged vault."""
