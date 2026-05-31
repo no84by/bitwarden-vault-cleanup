@@ -1,12 +1,21 @@
 # bitwarden-vault-cleanup
 Python script to clean, normalize, and deduplicate Bitwarden vault exports.  Merges related entries, removes identical duplicates, excludes organization vault items, and outputs an import-ready JSON file —  all while running locally, without storing, transmitting, or collecting any sensitive data. An one commmand-line, low-tech skill, and fully under user control solution — no cloud magic, ai or some else's webpage.
 
-> **v2.0 (2026-05)** — updated for the Bitwarden 2026.x export: SSH-key items (type 5) are
-> labelled and passed through; passkey logins (`fido2Credentials`) are detected, never merged
-> away, and reported with a warning before the purge+reimport step (passkeys do not reliably
-> survive export/reimport — see [`COMPATIBILITY.md`](COMPATIBILITY.md)). The dedup algorithm
-> and file-based workflow are unchanged. For in-place delta apply (no purge) and two-way vault
-> sync, see the successor [**bw-vault-tools**](https://github.com/no84by/bw-vault-tools).
+**Who this is for — the simple, entry-level option.** One file, download and run. No install,
+no CLI to learn, no accounts. You export your vault as JSON from the web vault, run the script,
+re-import the cleaned file. If you are comfortable in a terminal and want *more* — in-place
+cleanup with no purge+reimport, or two-way sync between two vaults — use the advanced sibling
+**[bw-vault-tools](https://github.com/no84by/bw-vault-tools)**. Same dedup algorithm at the
+core; different audience.
+
+> **v2.1 (2026-05)** — updated for the Bitwarden 2026.x export (SSH-key type 5 + passkey
+> detection/guard) and hardened for safety (rejects bad input, tolerates null URIs, 0600
+> output, no plaintext-password printing). The dedup algorithm and file-based workflow are
+> unchanged. See [`COMPATIBILITY.md`](COMPATIBILITY.md) and the release notes. Prefer the
+> terminal / want delta-apply or sync? See **[bw-vault-tools](https://github.com/no84by/bw-vault-tools)**.
+
+> **Download:** grab `bitwarden_vault_cleanup.py` directly from the
+> [latest release](https://github.com/no84by/bitwarden-vault-cleanup/releases/latest) — no clone needed.
 
 ---
 
