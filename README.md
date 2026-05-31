@@ -467,6 +467,15 @@ Always remove export files when you're done.
 
 
 ---
+## Acknowledgements
+
+Thanks to the people who helped improve this tool. See [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
+- [@joseluislucas](https://github.com/joseluislucas) — reported and root-caused the dropped
+  no-URI login entries ([#1](https://github.com/no84by/bitwarden-vault-cleanup/issues/1)),
+  fixed in v2.0.1.
+
+---
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
