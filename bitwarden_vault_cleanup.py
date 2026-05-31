@@ -261,28 +261,23 @@ _CSV_SCHEMA = {
 }
 
 
-def _host(url):
-    return normalize_uri(url) if url else ""
-
-
 def csv_to_items(path, kind):
     """Map a recognized browser CSV to Bitwarden login items (one per row, fresh uuid id)."""
     name_c, url_c, user_c, pass_c, note_c, source = _CSV_SCHEMA[kind]
     items = []
     with open(path, 'r', encoding='utf-8-sig', errors='replace', newline='') as f:
         reader = csv.DictReader(f)
-        lower = {fn: (fn or '').strip().lower() for fn in (reader.fieldnames or [])}
+        # lowercased column name -> original fieldname, built once
+        by_lower = {(fn or '').strip().lower(): fn for fn in (reader.fieldnames or [])}
 
         def get(row, col):
             if not col:
                 return ''
-            for orig, low in lower.items():
-                if low == col:
-                    return (row.get(orig) or '').strip()
-            return ''
+            orig = by_lower.get(col)
+            return (row.get(orig) or '').strip() if orig else ''
         for row in reader:
             url = get(row, url_c)
-            name = get(row, name_c) or _host(url) or "(imported)"
+            name = get(row, name_c) or normalize_uri(url) or "(imported)"
             note = get(row, note_c)
             tag = f"[source: {source}]"
             notes = (note + "\n" + tag).strip() if note else tag
@@ -324,6 +319,11 @@ BROWSERS = {
 }
 
 _OS_KEY = {"Linux": "linux", "Darwin": "darwin", "Windows": "windows"}
+
+# Which CSV schema each browser's exporter produces.
+_BROWSER_CSV_KIND = {"chrome": "chromium_csv", "edge": "chromium_csv", "brave": "chromium_csv",
+                     "opera": "chromium_csv", "vivaldi": "chromium_csv",
+                     "firefox": "firefox_csv", "safari": "safari_csv"}
 
 
 def detect_browsers(home=None):
@@ -368,10 +368,6 @@ def export_instructions(browser):
     return _EXPORT_STEPS.get(browser, f"{browser}: use its built-in 'Export passwords' to CSV.")
 
 
-def _sleep(seconds):
-    time.sleep(seconds)
-
-
 def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll=1.0, info=print):
     """Guide the user to export `browser`, then return a path to the produced file (or None).
 
@@ -386,7 +382,7 @@ def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll
             info(f"  detected export: {os.path.basename(hit)}")
             return hit
         if poll:
-            _sleep(poll)
+            time.sleep(poll)
     resp = ask(f"  No {browser} export detected. Paste a path, or press Enter to skip: ").strip()
     if resp and os.path.isfile(resp):
         return resp
@@ -436,13 +432,10 @@ def aggregate_sources(found, installed, confirm, collect):
 
     paths = list(found)
     present_kinds = {k for _, k in found}
-    browser_kind = {"chrome": "chromium_csv", "edge": "chromium_csv", "brave": "chromium_csv",
-                    "opera": "chromium_csv", "vivaldi": "chromium_csv",
-                    "firefox": "firefox_csv", "safari": "safari_csv"}
     # One file per CSV schema is enough: same-schema browsers (e.g. all Chromium variants) share
     # the column layout and dedup collapses identical rows. Skip a kind we already have a file for.
     for b in sorted(installed):
-        kind = browser_kind.get(b)
+        kind = _BROWSER_CSV_KIND.get(b)
         if not kind or kind in present_kinds:   # unknown, or we already have a file of this kind
             continue
         hit = collect(b, {kind})
