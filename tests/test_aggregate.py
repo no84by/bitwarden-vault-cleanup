@@ -26,3 +26,12 @@ def test_classify_safari_csv():
 
 def test_classify_unknown_returns_none():
     assert bvc.classify_export(os.path.join(FX, "random.csv")) is None
+
+
+def test_scan_for_exports_finds_and_classifies(tmp_path):
+    import shutil
+    for fn in ("chromium.csv", "bitwarden.json", "random.csv"):
+        shutil.copy(os.path.join(FX, fn), tmp_path / fn)
+    found = bvc.scan_for_exports([str(tmp_path)])
+    kinds = sorted(k for _, k in found)
+    assert kinds == ["bitwarden_json", "chromium_csv"]   # random.csv (None) excluded

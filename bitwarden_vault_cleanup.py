@@ -229,6 +229,25 @@ def classify_export(path):
         return 'safari_csv'
     return None
 
+def scan_for_exports(dirs):
+    """Return [(path, kind)] for files in `dirs` recognized as exports. Unknown files skipped."""
+    seen = set()
+    out = []
+    for d in dirs:
+        if not d or not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not name.lower().endswith(('.csv', '.json')):
+                continue
+            path = os.path.realpath(os.path.join(d, name))
+            if path in seen:
+                continue
+            seen.add(path)
+            kind = classify_export(path)
+            if kind:
+                out.append((path, kind))
+    return out
+
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
     lossy 'cleaned' file the user re-imports over a purged vault."""
