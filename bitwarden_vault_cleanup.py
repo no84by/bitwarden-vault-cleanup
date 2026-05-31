@@ -368,6 +368,31 @@ def export_instructions(browser):
     return _EXPORT_STEPS.get(browser, f"{browser}: use its built-in 'Export passwords' to CSV.")
 
 
+def _sleep(seconds):
+    time.sleep(seconds)
+
+
+def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll=1.0, info=print):
+    """Guide the user to export `browser`, then return a path to the produced file (or None).
+
+    Dependency-injected for tests: `watch(kinds, since) -> path|None` polls the filesystem,
+    `ask(prompt) -> str` reads a line, `now() -> float` is the clock, `info(msg)` prints.
+    In production these are real (a Downloads watcher, ui.ask, time.time(), ui.info)."""
+    info("\n" + export_instructions(browser))
+    start = now()
+    while now() - start < timeout:
+        hit = watch(expected_kinds, start)
+        if hit:
+            info(f"  detected export: {hit}")
+            return hit
+        if poll:
+            _sleep(poll)
+    resp = ask(f"  No {browser} export detected. Paste a path, or press Enter to skip: ").strip()
+    if resp and os.path.isfile(resp):
+        return resp
+    return None
+
+
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
     lossy 'cleaned' file the user re-imports over a purged vault."""

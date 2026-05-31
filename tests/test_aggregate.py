@@ -83,3 +83,31 @@ def test_downloads_dir_prefers_existing(tmp_path, monkeypatch):
 def test_export_instructions_known_browser_mentions_export():
     text = bvc.export_instructions("chrome")
     assert "export" in text.lower()
+
+
+def test_collect_source_returns_watched_file():
+    def fake_watch(kinds, since):
+        return os.path.join(FX, "chromium.csv")     # appears immediately
+    path = bvc.collect_source("chrome", expected_kinds={"chromium_csv"},
+                              watch=fake_watch, ask=lambda prompt: "", now=lambda: 0.0,
+                              info=lambda *_: None)
+    assert path.endswith("chromium.csv")
+
+
+def test_collect_source_timeout_then_skip_returns_none():
+    def fake_watch(kinds, since):
+        return None                                  # never appears
+    path = bvc.collect_source("chrome", expected_kinds={"chromium_csv"},
+                              watch=fake_watch, ask=lambda prompt: "", now=lambda: 999.0,
+                              timeout=0.0, info=lambda *_: None)
+    assert path is None
+
+
+def test_collect_source_accepts_pasted_path():
+    def fake_watch(kinds, since):
+        return None
+    pasted = os.path.join(FX, "firefox.csv")
+    path = bvc.collect_source("firefox", expected_kinds={"firefox_csv"},
+                              watch=fake_watch, ask=lambda prompt: pasted, now=lambda: 999.0,
+                              timeout=0.0, info=lambda *_: None)
+    assert path == pasted
