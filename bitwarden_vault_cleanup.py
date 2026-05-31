@@ -223,12 +223,12 @@ def classify_export(path):
         return 'bitwarden_json' if '"items"' in head else None
     first_line = head.splitlines()[0].lower() if head.splitlines() else ''
     cols = {c.strip().strip('"') for c in first_line.split(',')}
-    if {'name', 'url', 'username', 'password'} <= cols:
-        return 'chromium_csv'
-    if {'url', 'username', 'password'} <= cols and 'httprealm' in cols:
+    if {'url', 'username', 'password', 'httprealm'} <= cols:
         return 'firefox_csv'
     if {'title', 'url', 'username', 'password'} <= cols:
         return 'safari_csv'
+    if {'name', 'url', 'username', 'password'} <= cols:
+        return 'chromium_csv'
     return None
 
 def scan_for_exports(dirs):
