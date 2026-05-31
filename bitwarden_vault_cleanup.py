@@ -393,6 +393,48 @@ def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll
     return None
 
 
+def _items_from(path, kind):
+    if kind == "bitwarden_json":
+        data = load_vault(path)
+        return data.get("items", []) if isinstance(data, dict) else []
+    return csv_to_items(path, kind)
+
+
+def aggregate_sources(found, installed, confirm, collect):
+    """Detect-and-offer orchestrator. Returns (browser_items, per_source_counts).
+
+    `found`     : [(path, kind)] already on disk (from scan_for_exports)
+    `installed` : set of browser names to offer guided export for
+    `confirm(found, installed) -> bool` : the aggregate? prompt
+    `collect(browser, expected_kinds) -> path|None` : guided wait-for-export for a browser
+    A found Bitwarden JSON is COUNTED but its items are NOT returned (the classic path loads it).
+    All side-effecting deps are injected so the orchestrator is unit-testable."""
+    if not confirm(found, installed):
+        return [], {}
+
+    paths = list(found)
+    present_kinds = {k for _, k in found}
+    browser_kind = {"chrome": "chromium_csv", "edge": "chromium_csv", "brave": "chromium_csv",
+                    "opera": "chromium_csv", "vivaldi": "chromium_csv",
+                    "firefox": "firefox_csv", "safari": "safari_csv"}
+    for b in sorted(installed):
+        kind = browser_kind.get(b)
+        if not kind or kind in present_kinds:   # unknown, or we already have a file of this kind
+            continue
+        hit = collect(b, {kind})
+        if hit:
+            paths.append((hit, classify_export(hit) or kind))
+            present_kinds.add(kind)
+
+    items, counts = [], {}
+    for path, kind in paths:
+        got = _items_from(path, kind)
+        counts[kind] = counts.get(kind, 0) + len(got)
+        if kind != "bitwarden_json":            # bitwarden JSON is loaded by the classic path
+            items.extend(got)
+    return items, counts
+
+
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
     lossy 'cleaned' file the user re-imports over a purged vault."""

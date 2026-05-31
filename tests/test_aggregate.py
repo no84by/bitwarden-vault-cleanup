@@ -111,3 +111,22 @@ def test_collect_source_accepts_pasted_path():
                               watch=fake_watch, ask=lambda prompt: pasted, now=lambda: 999.0,
                               timeout=0.0, info=lambda *_: None)
     assert path == pasted
+
+
+def test_aggregate_sources_merges_found_files():
+    found = [
+        (os.path.join(FX, "bitwarden.json"), "bitwarden_json"),
+        (os.path.join(FX, "chromium.csv"), "chromium_csv"),
+    ]
+    items, sources = bvc.aggregate_sources(found=found, installed=set(),
+                                           confirm=lambda *_: True,
+                                           collect=lambda *a, **k: None)
+    assert len(items) == 2                     # chromium only; bitwarden loaded by main()
+    assert sources["bitwarden_json"] == 1 and sources["chromium_csv"] == 2
+    assert all(it.get("id") for it in items)
+
+
+def test_aggregate_sources_declined_returns_empty():
+    items, sources = bvc.aggregate_sources(found=[], installed=set(),
+                                           confirm=lambda *_: False, collect=lambda *a, **k: None)
+    assert items == [] and sources == {}
