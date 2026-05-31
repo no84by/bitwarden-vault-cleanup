@@ -14,9 +14,17 @@ tool already consumes export files and its whole purpose is dedup/merge.
 
 **Coherence with the entry-level positioning.** Consolidating scattered browser passwords into
 one vault is an *onboarding* need — exactly the non-technical audience this tool serves. The
-feature preserves the brand because it is **optional and skippable**: it stays one file, adds no
-third-party dependencies (stdlib `csv`/`glob`/`uuid` only), and the classic "pass a Bitwarden
+feature preserves the brand because it is **optional and skippable**: it stays one file, requires
+no third-party dependencies (stdlib `csv`/`glob`/`uuid` only), and the classic "pass a Bitwarden
 JSON and clean it" path is unchanged. The complexity is opt-in, behind the launch prompt.
+
+**Terminal UI — optional `rich`, stdlib fallback.** All user-facing front-end output goes through
+one tiny `ui` abstraction. If `rich` is importable, the front-end renders coloured tables/panels
+and nicer prompts; if not, it falls back to plain stdlib `print`/`input`. `rich` is therefore a
+**soft, optional** dependency — never required, never installed by the tool — so the single-file,
+download-and-run, zero-required-deps story holds. Centralising both render paths behind the `ui`
+object keeps it to one abstraction rather than scattered `if rich:` branches. (Note: this is a
+*terminal* UI; the web-oriented frontend-design tooling does not apply.)
 
 ## Cornerstones (non-negotiable)
 
