@@ -30,3 +30,10 @@ restore a passkey that your export never captured.** Before purging:
 For in-place delta application (no purge + reimport) and two-way vault sync, see
 [**bw-vault-tools**](https://github.com/no84by/bw-vault-tools). The deduplication algorithm in
 this script lives on there as `identity.py`.
+
+## Browser aggregation — what it does and does not touch
+
+The optional `--aggregate` mode detects installed browsers by directory existence only and
+ingests password CSVs that YOU export via each browser's built-in exporter. It never reads,
+copies, or decrypts `Login Data`, `key4.db`, the macOS Keychain, or any other credential store.
+Supported export CSVs: Chromium (Chrome/Edge/Brave/Opera/Vivaldi), Firefox, Safari.
