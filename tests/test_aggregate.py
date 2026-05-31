@@ -173,3 +173,15 @@ def test_plain_ui_table_renders_rows(capsys):
     ui.table("Sources", [["bitwarden", "1"], ["chromium", "2"]])
     out = capsys.readouterr().out
     assert "bitwarden" in out and "chromium" in out
+
+
+def test_get_output_filename_handles_none():
+    assert bvc.get_output_filename(None).startswith("aggregated-vault_cleaned_up_")
+
+
+def test_classify_and_map_handle_utf8_bom(tmp_path):
+    p = tmp_path / "bom.csv"
+    p.write_bytes(b"\xef\xbb\xbfname,url,username,password,note\nX,https://x.com,u,pw,\n")
+    assert bvc.classify_export(str(p)) == "chromium_csv"
+    items = bvc.csv_to_items(str(p), "chromium_csv")
+    assert items[0]["login"]["username"] == "u"
