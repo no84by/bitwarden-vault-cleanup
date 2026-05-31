@@ -2,10 +2,19 @@
 # bitwarden_vault_cleanup.py
 
 """
-Bitwarden Vault Cleanup Script (v1.9)
+Bitwarden Vault Cleanup Script (v2.0)
 ─────────────────────────────────────
 
 This script helps clean, normalize, and deduplicate Bitwarden vault exports.
+
+v2.0 (2026-05) — compatibility update for the Bitwarden 2026.x export schema:
+  - SSH-key items (type 5) are now labelled, counted, and passed through untouched.
+  - Passkey-bearing logins (login.fido2Credentials) are detected, EXCLUDED from
+    deduplication (so a merge can never drop a passkey), and reported with a loud
+    warning — because `bw export` does not faithfully round-trip passkeys
+    (github.com/bitwarden/clients#6925) and a purge+reimport can lose them.
+  See COMPATIBILITY.md. For in-place delta apply (no purge+reimport) and two-way
+  sync, see the successor project: github.com/no84by/bw-vault-tools
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 USAGE:
@@ -175,6 +184,17 @@ def load_vault(file_path):
     except json.JSONDecodeError:
         print(f"\n[ERROR] File is not valid JSON: '{file_path}'")
         sys.exit(1)
+
+def has_passkey(entry):
+    """True if a login entry carries one or more passkeys (fido2Credentials).
+
+    `bw export` is known to emit an empty fido2Credentials array for some clients
+    (github.com/bitwarden/clients#6925); when it IS populated we must never let the
+    dedup step merge such an entry away, or the passkey is lost.
+    """
+    login = entry.get('login')
+    return bool(login and isinstance(login, dict) and login.get('fido2Credentials'))
+
 
 def normalize_uri(uri):
     if uri.startswith("android://") or uri.startswith("androidapp://"):
@@ -387,7 +407,7 @@ def print_folder_breakdown(entries, folders):
         print(f"     • {name}: {count} entries")
 
 
-def print_summary(original, final, compromised, ambiguous, merged, removed, org_count, reused_counter, type_counter, skipped, folders, final_entries):
+def print_summary(original, final, compromised, ambiguous, merged, removed, org_count, reused_counter, type_counter, skipped, folders, final_entries, passkey_count=0):
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(" CLEAN-UP SUMMARY")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -399,6 +419,7 @@ def print_summary(original, final, compromised, ambiguous, merged, removed, org_
     print(f"Duplicate entries removed:                           {removed}")
     print(f"Ambiguous entries retained:                          {len(ambiguous)}")
     print(f"Ommited login entries that slipped cleanup:          {skipped}")
+    print(f"Passkey logins passed through (NOT deduped):          {passkey_count}")
     print(f"Final kept entries (for import):                     {final}")
     print("")
     print(f"\n  >> Final vault item type breakdown:")
@@ -407,6 +428,7 @@ def print_summary(original, final, compromised, ambiguous, merged, removed, org_
         "2": "Secure Notes",
         "3": "Cards",
         "4": "Identities",
+        "5": "SSH Keys",
         "unknown": "Unknown Type"
     }
     for t, count in sorted(type_counter.items()):
@@ -416,6 +438,19 @@ def print_summary(original, final, compromised, ambiguous, merged, removed, org_
     print_folder_breakdown(final_entries, folders)
     print("")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    if passkey_count:
+        print("")
+        print("  !!  PASSKEY WARNING  !!")
+        print(f"  {passkey_count} login entr(y/ies) contain passkeys (login.fido2Credentials).")
+        print("  These were passed through UNTOUCHED (never merged) by this script.")
+        print("  BUT: the Bitwarden CLI / JSON export does not reliably round-trip")
+        print("  passkeys (github.com/bitwarden/clients#6925). If you follow the")
+        print("  PURGE + REIMPORT step below with an export that dropped them, you will")
+        print("  LOSE those passkeys. Before purging, verify your export actually")
+        print("  contains the fido2Credentials, or re-enrol the passkeys afterwards.")
+        print("  Safer alternative (in-place, no purge): github.com/no84by/bw-vault-tools")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 
     if ambiguous:
@@ -455,14 +490,18 @@ if __name__ == "__main__":
     folders = personal_data.get('folders', [])
     personal_items = personal_data.get('items', [])
     non_login_items = [e for e in personal_items if 'login' not in e]
+    # v2.0: passkey-bearing logins are EXCLUDED from dedup (so a merge can never drop a
+    # passkey) and passed through untouched. Only non-passkey logins are deduplicated.
+    passkey_items = [e for e in personal_items if 'login' in e and has_passkey(e)]
+    dedup_login_items = [e for e in personal_items if 'login' in e and not has_passkey(e)]
     org_items = org_data.get('items', []) if org_data else []
     org_ids = {entry['id'] for entry in org_items} if org_items else set()
 
-    cleaned_personal, skipped_entries = clean_entries(personal_items, folders)
+    cleaned_personal, skipped_entries = clean_entries(dedup_login_items, folders)
     compromised_passwords = index_passwords(cleaned_personal + org_items)
 
     print("\n[INFO] Starting vault clean-up...", flush=True)
-    time.sleep(1) 
+    time.sleep(1)
 
     reused_counter = Counter()
     for entry in cleaned_personal + org_items:
@@ -477,11 +516,12 @@ if __name__ == "__main__":
     deduped, ambiguous, merged, removed = deduplicate(cleaned_personal, compromised_passwords)
     flag_reused_passwords(deduped, compromised_passwords)
 
-    type_counter = Counter(str(e.get('type', 'unknown')) for e in deduped + non_login_items)
+    passthrough = non_login_items + passkey_items
+    type_counter = Counter(str(e.get('type', 'unknown')) for e in deduped + passthrough)
 
 print_summary(
     original=len(personal_items),
-    final=len(deduped + non_login_items),
+    final=len(deduped + passthrough),
     compromised=compromised_passwords,
     ambiguous=ambiguous,
     merged=merged,
@@ -491,14 +531,15 @@ print_summary(
     type_counter=type_counter,
     skipped=len(skipped_entries),
     folders=folders,
-    final_entries=deduped 
+    final_entries=deduped,
+    passkey_count=len(passkey_items)
 )
 
 
 if args.dry_run:
     print("\n[DRY RUN] No file written.\n")
 else:
-    personal_data['items'] = deduped + non_login_items
+    personal_data['items'] = deduped + passthrough
     output_file = get_output_filename(args.personal_vault)
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(personal_data, f, indent=2)

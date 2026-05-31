@@ -1,6 +1,13 @@
 # bitwarden-vault-cleanup
 Python script to clean, normalize, and deduplicate Bitwarden vault exports.  Merges related entries, removes identical duplicates, excludes organization vault items, and outputs an import-ready JSON file —  all while running locally, without storing, transmitting, or collecting any sensitive data. An one commmand-line, low-tech skill, and fully under user control solution — no cloud magic, ai or some else's webpage.
 
+> **v2.0 (2026-05)** — updated for the Bitwarden 2026.x export: SSH-key items (type 5) are
+> labelled and passed through; passkey logins (`fido2Credentials`) are detected, never merged
+> away, and reported with a warning before the purge+reimport step (passkeys do not reliably
+> survive export/reimport — see [`COMPATIBILITY.md`](COMPATIBILITY.md)). The dedup algorithm
+> and file-based workflow are unchanged. For in-place delta apply (no purge) and two-way vault
+> sync, see the successor [**bw-vault-tools**](https://github.com/no84by/bw-vault-tools).
+
 ---
 
 ## ❓ Why This Script Exists
