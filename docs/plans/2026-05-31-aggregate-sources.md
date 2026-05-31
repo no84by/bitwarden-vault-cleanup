@@ -939,6 +939,12 @@ Your browser passwords are only ever read from files YOU export. Nothing is read
 encrypted browser stores. See SECURITY note in COMPATIBILITY.md.
 ```
 
+Also refresh the successor/positioning wording to the three-branch family (same dedup core, three
+automation levels): **Manual** = this tool (file in → cleaned file out, you export/import by hand);
+**CLI** = [bw-vault-tools](https://github.com/no84by/bw-vault-tools) `bw-dedup` (drives the `bw`
+CLI, in-place delta dedup, no purge); **Auto** = bw-vault-tools `bw-sync` (autonomous reversible
+two-way sync). Replace the single "advanced sibling" line with this triad framing.
+
 - [ ] **Step 2: Add the security note to `COMPATIBILITY.md`**
 
 ```markdown
