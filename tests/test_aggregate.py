@@ -152,3 +152,24 @@ def test_end_to_end_aggregate_then_dedup_collapses_overlap():
     assert "example.com" in names
     assert removed == 1                       # the exact duplicate was removed
     assert any(e['login'].get('username') == 'bob' for e in no_url)   # browser-only preserved
+
+
+def test_get_ui_returns_an_object_with_the_interface():
+    ui = bvc.get_ui()
+    for m in ("heading", "info", "warn", "confirm", "ask", "table", "rule"):
+        assert callable(getattr(ui, m))
+
+
+def test_plain_ui_confirm_yes_no(monkeypatch):
+    ui = bvc._PlainUI()
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    assert ui.confirm("ok?") is True
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    assert ui.confirm("ok?") is False
+
+
+def test_plain_ui_table_renders_rows(capsys):
+    ui = bvc._PlainUI()
+    ui.table("Sources", [["bitwarden", "1"], ["chromium", "2"]])
+    out = capsys.readouterr().out
+    assert "bitwarden" in out and "chromium" in out

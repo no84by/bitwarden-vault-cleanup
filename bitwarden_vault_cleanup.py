@@ -435,6 +435,67 @@ def aggregate_sources(found, installed, confirm, collect):
     return items, counts
 
 
+class _PlainUI:
+    """Stdlib-only renderer. The always-available baseline."""
+    def heading(self, text):
+        print("\n" + text)
+        print("-" * len(text))
+    def info(self, text):
+        print(text)
+    def warn(self, text):
+        print("[!] " + text, file=sys.stderr)
+    def rule(self):
+        print("-" * 60)
+    def ask(self, prompt):
+        return input(prompt)
+    def confirm(self, prompt):
+        return input(prompt.rstrip() + " [y/N]: ").strip().lower() == "y"
+    def table(self, title, rows):
+        if title:
+            print("\n" + title + ":")
+        for row in rows:
+            print("   " + "  ".join(str(c) for c in row))
+
+
+class _RichUI:
+    """Prettier renderer used only when `rich` is installed. Same interface as _PlainUI."""
+    def __init__(self, rich):
+        from rich.console import Console
+        self._c = Console()
+        self._rich = rich
+    def heading(self, text):
+        self._c.rule(f"[bold]{text}")
+    def info(self, text):
+        self._c.print(text)
+    def warn(self, text):
+        self._c.print(f"[yellow]Warning:[/] {text}")
+    def rule(self):
+        self._c.rule()
+    def ask(self, prompt):
+        return self._c.input(prompt)
+    def confirm(self, prompt):
+        from rich.prompt import Confirm
+        return Confirm.ask(prompt, default=False)
+    def table(self, title, rows):
+        from rich.table import Table
+        t = Table(title=title)
+        for i in range(max((len(r) for r in rows), default=0)):
+            t.add_column(str(i))
+        for r in rows:
+            t.add_row(*(str(c) for c in r))
+        self._c.print(t)
+
+
+def get_ui():
+    """Return a _RichUI if `rich` is importable, else the stdlib _PlainUI. rich is optional and
+    is never installed by this tool."""
+    try:
+        import rich
+        return _RichUI(rich)
+    except Exception:
+        return _PlainUI()
+
+
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
     lossy 'cleaned' file the user re-imports over a purged vault."""
