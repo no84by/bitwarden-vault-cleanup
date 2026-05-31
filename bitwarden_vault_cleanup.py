@@ -2,10 +2,19 @@
 # bitwarden_vault_cleanup.py
 
 """
-Bitwarden Vault Cleanup Script (v2.0.1)
+Bitwarden Vault Cleanup Script (v2.1)
 ─────────────────────────────────────
 
 This script helps clean, normalize, and deduplicate Bitwarden vault exports.
+
+v2.1 (2026-05) — safety + robustness hardening:
+  - Refuses encrypted exports / non-Bitwarden JSON / missing 'items'; warns on a
+    zero-item file, so it can never write an empty vault you then re-import.
+  - Tolerates null/empty URIs (`{"uri": null}`) that previously crashed the whole run.
+  - Output file written with mode 0600 (it contains plaintext passwords).
+  - Reused-password values are no longer printed (only counts, to stderr).
+  - Clean exit codes; handles non-interactive stdin (no EOFError traceback).
+  - Wrapped execution in main(); internal cleanups (dead code, typos).
 
 v2.0.1 (2026-05) — fix (issue #1): login items without a URI (and any item the
   cleaner cannot deduplicate) are now preserved unchanged in the output instead of
@@ -62,7 +71,7 @@ if platform.system() == "Windows":
     os.system("chcp 65001 >nul")
     sys.stdout.reconfigure(encoding='utf-8')
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -70,8 +79,14 @@ from pathlib import Path
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-def clear_terminal():
-    os.system('cls' if platform.system() == 'Windows' else 'clear')
+TYPE_LABELS = {
+    "1": "Logins",
+    "2": "Secure Notes",
+    "3": "Cards",
+    "4": "Identities",
+    "5": "SSH Keys",
+    "unknown": "Unknown Type",
+}
 
 def parse_args_or_prompt():
     parser = argparse.ArgumentParser(
@@ -91,20 +106,25 @@ def parse_args_or_prompt():
         sys.exit(0)
 
     if not args.personal_vault:
+        if not sys.stdin.isatty():
+            sys.exit("[ERROR] No personal vault path given and stdin is not interactive. "
+                     "Pass the export path as an argument.")
         print_help_header()
         print("\n[WARNING] Missing required argument: personal_vault")
-        args.personal_vault = input("-> Personal vault file name (and path if not in the same folder): ").strip()
+        try:
+            args.personal_vault = input("-> Personal vault file name (and path if not in the same folder): ").strip()
+        except EOFError:
+            sys.exit("\n[ERROR] No input received. Pass the export path as an argument.")
 
-    if not args.org_vault:
+    if not args.org_vault and sys.stdin.isatty():
         response = input("-> Optional org vault file name (press Enter to skip): ").strip()
         args.org_vault = response if response else None
 
     return args
 
 def print_help_header():
-    clear_terminal()
     print("""
-Hello there, you seems to misunderstoon the useage of this script... We need you to provide some arguments. Here is how you can do that:
+Hello there, you seem to have misunderstood the usage of this script. We need you to provide some arguments. Here is how you can do that:
 
  EXPORT PERSONAL VAULT:
    - Go to: https://vault.bitwarden.com/#/tools/export
@@ -121,7 +141,6 @@ Hello there, you seems to misunderstoon the useage of this script... We need you
 """)
 
 def print_detailed_help():
-    clear_terminal()
     print("""
 
 This script helps clean and deduplicate Bitwarden JSON vault exports.
@@ -189,6 +208,25 @@ def load_vault(file_path):
         print(f"\n[ERROR] File is not valid JSON: '{file_path}'")
         sys.exit(1)
 
+def validate_vault(data, file_path):
+    """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
+    lossy 'cleaned' file the user re-imports over a purged vault."""
+    if not isinstance(data, dict):
+        print(f"\n[ERROR] '{file_path}': expected a JSON object, got {type(data).__name__}. "
+              f"Is this a Bitwarden export?")
+        sys.exit(1)
+    if data.get("encrypted") is True:
+        print(f"\n[ERROR] '{file_path}' is an ENCRYPTED export. Re-export choosing the "
+              f"“JSON” format (NOT “JSON (Encrypted)”).")
+        sys.exit(1)
+    if "items" not in data:
+        print(f"\n[ERROR] '{file_path}' has no 'items' key. This does not look like a "
+              f"Bitwarden vault export.")
+        sys.exit(1)
+    if not data.get("items"):
+        print(f"\n[WARNING] '{file_path}' contains zero items. Continuing, but verify this "
+              f"is the file you meant before re-importing.")
+
 def has_passkey(entry):
     """True if a login entry carries one or more passkeys (fido2Credentials).
 
@@ -201,23 +239,21 @@ def has_passkey(entry):
 
 
 def normalize_uri(uri):
+    if not uri:                       # tolerate {"uri": null} / empty entries (don't crash the run)
+        return ''
     if uri.startswith("android://") or uri.startswith("androidapp://"):
-        match = re.search(r'@(.+?)/', uri)
+        match = re.search(r'@(.+?)(?:/|$)', uri)
         return match.group(1) if match else uri.split("://")[-1]
     uri = re.sub(r'^https?://', '', uri).lower().rstrip('/')
     domain = uri.split('/')[0]
     return domain
 
-def get_normalized_identity(entry):
-    if 'login' not in entry or not entry['login'].get('uris'):
-        return None
-    uri = entry['login']['uris'][0]['uri']
-    return normalize_uri(uri)
-
 def normalize_name(entry):
     if entry['name'] != '--':
         return entry['name']
     uri = entry['login']['uris'][0]['uri']
+    if not uri:
+        return entry['name']
     if uri.startswith('android'):
         return normalize_uri(uri).split('.')[-1]
     return normalize_uri(uri).split('.')[0]
@@ -308,7 +344,6 @@ def deduplicate(entries, compromised_passwords):
     grouped = defaultdict(list)
     grouped_entry_ids = set()
     final_entries = []
-    ambiguous = []
     merged = 0
     removed = 0
 
@@ -362,22 +397,12 @@ def deduplicate(entries, compromised_passwords):
 
         best = candidates[-1]
 
-        merged_uris = set(u['uri'] for e in group for u in e['login'].get('uris', []))
+        merged_uris = set(u['uri'] for e in group for u in e['login'].get('uris', []) if u.get('uri'))
         best['login']['uris'] = [{'uri': uri, 'match': None} for uri in sorted(merged_uris)]
 
         merged_notes = [e['notes'].strip() for e in group if e.get('notes') and e['notes'].strip()]
         merged_notes = list(dict.fromkeys(merged_notes))
-
-        if merged_notes:
-            best['notes'] = "\n\n".join(merged_notes)
-        else:
-            best['notes'] = None
-
-        if not best.get('notes'):
-            for e in reversed(group):
-                if e.get('notes'):
-                    best['notes'] = e['notes']
-                    break
+        best['notes'] = "\n\n".join(merged_notes) if merged_notes else None
 
         final_entries.append(best)
         merged += len(group) - 1
@@ -392,9 +417,7 @@ def deduplicate(entries, compromised_passwords):
         print(f"-> {len(ungrouped)} login entries were ungrouped and added to final output.")
         final_entries.extend(ungrouped)
 
-    return final_entries, ambiguous, merged, removed
-
-from collections import defaultdict
+    return final_entries, merged, removed
 
 def print_folder_breakdown(entries, folders):
     folder_map = {f['id']: f['name'] for f in folders}
@@ -411,32 +434,23 @@ def print_folder_breakdown(entries, folders):
         print(f"     • {name}: {count} entries")
 
 
-def print_summary(original, final, compromised, ambiguous, merged, removed, org_count, reused_counter, type_counter, skipped, folders, final_entries, passkey_count=0):
+def print_summary(original, final, compromised, merged, removed, org_count, reused_counter, type_counter, skipped, folders, final_entries, passkey_count=0):
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(" CLEAN-UP SUMMARY")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(f"Initial personal entries:                            {original}")
     print(f"Organizational entries provided:                     {org_count}")
-    print(f"Total processed entries:                             {len(deduped)}")
-    print(f"Entires with potentially compromised passwords:      {len(compromised)}")
+    print(f"Deduplicated login entries:                          {len(final_entries)}")
+    print(f"Entries with potentially compromised passwords:      {len(compromised)}")
     print(f"Duplicate entries merged:                            {merged}")
     print(f"Duplicate entries removed:                           {removed}")
-    print(f"Ambiguous entries retained:                          {len(ambiguous)}")
     print(f"Login entries kept as-is (no URI, not deduped):      {skipped}")
     print(f"Passkey logins passed through (NOT deduped):          {passkey_count}")
     print(f"Final kept entries (for import):                     {final}")
     print("")
-    print(f"\n  >> Final vault item type breakdown:")
-    type_labels = {
-        "1": "Logins",
-        "2": "Secure Notes",
-        "3": "Cards",
-        "4": "Identities",
-        "5": "SSH Keys",
-        "unknown": "Unknown Type"
-    }
+    print("\n  >> Final vault item type breakdown:")
     for t, count in sorted(type_counter.items()):
-        label = type_labels.get(t, f"Type {t}")
+        label = TYPE_LABELS.get(t, f"Type {t}")
         print(f"     • {label}: {count} entries")
     print("")
     print_folder_breakdown(final_entries, folders)
@@ -457,23 +471,16 @@ def print_summary(original, final, compromised, ambiguous, merged, removed, org_
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 
-    if ambiguous:
-        print("\n  >> Ambiguous Entry Groups:")
-        for group in ambiguous:
-            uri, username, entries = group
-            print(f"  URI: {uri} | Username: {username}")
-            for e in entries:
-                print(f"    {e['name']} ({e['id']})")
-
     if compromised:
-        print(f"\n[DEBUG] Reused passwords: {len(compromised_passwords)}. Top reused passwords:")
-        for pw, count in reused_counter.most_common(15):
-            print(f"               • {(pw)}({count})")
+        # Counts only — never print plaintext passwords (a redirected stdout would leak them).
+        print(f"\n  >> {len(compromised)} reused password(s) flagged across "
+              f"{sum(reused_counter.values())} entr(y/ies). Values withheld for safety.",
+              file=sys.stderr)
 
 
 def get_output_filename(original):
     base = Path(original).stem
-    return f"{base}_cleanned_up_{TIMESTAMP}.json"
+    return f"{base}_cleaned_up_{TIMESTAMP}.json"
 
 def exclude_org_dupes(personal_entries, org_ids):
     kept = []
@@ -486,16 +493,31 @@ def exclude_org_dupes(personal_entries, org_ids):
 
 
 # === Main script execution ===
-if __name__ == "__main__":
+def write_output(output_file, personal_data):
+    """Write the cleaned vault with owner-only (0600) permissions — it holds plaintext
+    passwords. Fail loudly (non-zero exit) rather than leave a half-written file."""
+    try:
+        fd = os.open(output_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(personal_data, f, indent=2)
+    except OSError as exc:
+        print(f"\n[ERROR] Could not write '{output_file}': {exc}")
+        sys.exit(1)
+
+
+def main():
     args = parse_args_or_prompt()
     personal_data = load_vault(args.personal_vault)
+    validate_vault(personal_data, args.personal_vault)
     org_data = load_vault(args.org_vault) if args.org_vault else {}
+    if org_data:
+        validate_vault(org_data, args.org_vault)
 
     folders = personal_data.get('folders', [])
     personal_items = personal_data.get('items', [])
     non_login_items = [e for e in personal_items if 'login' not in e]
-    # v2.0: passkey-bearing logins are EXCLUDED from dedup (so a merge can never drop a
-    # passkey) and passed through untouched. Only non-passkey logins are deduplicated.
+    # Passkey-bearing logins are EXCLUDED from dedup (so a merge can never drop a passkey)
+    # and passed through untouched. Only non-passkey logins are deduplicated.
     passkey_items = [e for e in personal_items if 'login' in e and has_passkey(e)]
     dedup_login_items = [e for e in personal_items if 'login' in e and not has_passkey(e)]
     org_items = org_data.get('items', []) if org_data else []
@@ -517,7 +539,7 @@ if __name__ == "__main__":
     if org_items:
         cleaned_personal = exclude_org_dupes(cleaned_personal, org_ids)
 
-    deduped, ambiguous, merged, removed = deduplicate(cleaned_personal, compromised_passwords)
+    deduped, merged, removed = deduplicate(cleaned_personal, compromised_passwords)
     flag_reused_passwords(deduped, compromised_passwords)
 
     # Preserve, unchanged, every item the cleaner could not deduplicate:
@@ -528,28 +550,34 @@ if __name__ == "__main__":
     passthrough = non_login_items + passkey_items + skipped_entries
     type_counter = Counter(str(e.get('type', 'unknown')) for e in deduped + passthrough)
 
-print_summary(
-    original=len(personal_items),
-    final=len(deduped + passthrough),
-    compromised=compromised_passwords,
-    ambiguous=ambiguous,
-    merged=merged,
-    removed=removed,
-    org_count=len(org_items),
-    reused_counter=reused_counter,
-    type_counter=type_counter,
-    skipped=len(skipped_entries),
-    folders=folders,
-    final_entries=deduped,
-    passkey_count=len(passkey_items)
-)
+    print_summary(
+        original=len(personal_items),
+        final=len(deduped + passthrough),
+        compromised=compromised_passwords,
+        merged=merged,
+        removed=removed,
+        org_count=len(org_items),
+        reused_counter=reused_counter,
+        type_counter=type_counter,
+        skipped=len(skipped_entries),
+        folders=folders,
+        final_entries=deduped,
+        passkey_count=len(passkey_items),
+    )
 
+    if args.dry_run:
+        print("\n[DRY RUN] No file written.\n")
+        return
 
-if args.dry_run:
-    print("\n[DRY RUN] No file written.\n")
-else:
     personal_data['items'] = deduped + passthrough
     output_file = get_output_filename(args.personal_vault)
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(personal_data, f, indent=2)
-    print(f"\n[INFO] Cleaned vault written to: {output_file}\n")
+    write_output(output_file, personal_data)
+    print(f"\n[INFO] Cleaned vault written to: {output_file} (mode 0600 — delete it when done).\n")
+    if passkey_items:
+        print("[WARNING] This vault contains passkeys — read the PASSKEY WARNING above "
+              "before you purge + reimport.")
+
+
+# === Main script execution ===
+if __name__ == "__main__":
+    main()
