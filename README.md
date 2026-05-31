@@ -51,7 +51,7 @@ This becomes especially problematic when:
 
 ## Aggregate passwords from your browsers (optional)
 
-Run with `--aggregate` (or just run it with no file argument in a terminal). The script:
+Run with `--aggregate` in a terminal. The script:
 - detects which browsers are installed — by checking only whether their profile folder exists;
   it never opens, reads, or decrypts any browser password store,
 - offers to aggregate them plus your Bitwarden export into one cleaned vault,
