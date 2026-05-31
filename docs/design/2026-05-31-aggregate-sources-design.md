@@ -8,9 +8,15 @@ browsers are *installed*, guides the user through each browser's own export, ing
 resulting export files, converts them to Bitwarden items, and feeds everything into the existing
 deduplication algorithm unchanged.
 
-This is the entry-level, file-based tool (the simple successor lives at
+This is the entry-level, file-based tool (the advanced sibling lives at
 [bw-vault-tools](https://github.com/no84by/bw-vault-tools)). Aggregation fits here because this
 tool already consumes export files and its whole purpose is dedup/merge.
+
+**Coherence with the entry-level positioning.** Consolidating scattered browser passwords into
+one vault is an *onboarding* need — exactly the non-technical audience this tool serves. The
+feature preserves the brand because it is **optional and skippable**: it stays one file, adds no
+third-party dependencies (stdlib `csv`/`glob`/`uuid` only), and the classic "pass a Bitwarden
+JSON and clean it" path is unchanged. The complexity is opt-in, behind the launch prompt.
 
 ## Cornerstones (non-negotiable)
 
@@ -69,10 +75,19 @@ exactly as today — this front-end is additive and skippable.
 - **Safari CSV**: header `Title,URL,Username,Password,Notes,OTPAuth`.
 
 `csv_to_items` maps each to a Bitwarden login item:
-`{type:1, name: <name|title|host(url)>, login:{uris:[{uri:url,match:null}], username, password,
-totp: <otp if present else null>, fido2Credentials: []}, notes: <note + "[source: <browser>]">}`.
-Rows missing url/username/password are still emitted (preserve-everything; they land in the
-no-URI passthrough if no URL). Classification is by **header signature**, not filename, so a
+`{id: <fresh uuid4>, type:1, name: <name|title|host(url)>, folderId: null,
+login:{uris:[{uri:url,match:null}], username, password, totp: <otp if present else null>,
+fido2Credentials: []}, notes: <note + "\n[source: <browser>]">}`.
+
+**Coherence note — `id` is required.** The existing `deduplicate()` keys on `entry['id']`
+(grouping, `ungrouped` re-add) and the v2.1 preservation logic round-trips by id, so every
+converted CSV row **must** carry a fresh `uuid4` id. Browser CSVs have none, so `csv_to_items`
+generates one per row. Dates (`revisionDate`/`creationDate`) are absent in browser exports; the
+dedup scoring reads them via `.get(..., "")` (empty sorts consistently), and Bitwarden assigns
+real ids/dates on re-import — so converted items need only `id` to flow through the algorithm.
+
+Rows missing url/username/password are still emitted (preserve-everything; a row with no URL
+lands in the no-URI passthrough). Classification is by **header signature**, not filename, so a
 renamed file still works; an unrecognized CSV is reported and skipped (never guessed).
 
 ## Detection method (per OS, presence only)
@@ -81,6 +96,10 @@ renamed file still works; an unrecognized CSV is reported and skipped (never gue
 - **macOS:** `~/Library/Application Support/{Google/Chrome,Microsoft Edge,BraveSoftware,Firefox}`; Safari via `~/Library/Safari` (export is manual-only — instructions, no watch).
 - **Windows:** `%LOCALAPPDATA%\{Google\Chrome,Microsoft\Edge,BraveSoftware,...}\User Data`, `%APPDATA%\Mozilla\Firefox`.
 A browser counts as "installed" if its profile dir exists. We read directory existence only.
+
+The **Downloads directory is resolved per-OS** (`%USERPROFILE%\Downloads` on Windows,
+`~/Downloads` elsewhere), falling back to CWD if it does not exist. All scanning/watching uses
+this resolved path plus CWD.
 
 ## Wait-for-export mechanics
 
