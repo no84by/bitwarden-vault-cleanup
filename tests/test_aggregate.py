@@ -60,5 +60,6 @@ def test_csv_to_items_row_without_url_has_no_uris():
 def test_csv_to_items_firefox_and_safari_columns():
     ff = bvc.csv_to_items(os.path.join(FX, "firefox.csv"), "firefox_csv")[0]
     assert ff["login"]["username"] == "carol" and ff["login"]["uris"][0]["uri"] == "https://site.org"
+    assert ff["name"] == "site.org"
     sf = bvc.csv_to_items(os.path.join(FX, "safari.csv"), "safari_csv")[0]
     assert sf["login"]["username"] == "dave" and sf["name"] == "MyBank"
