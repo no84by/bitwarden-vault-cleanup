@@ -72,3 +72,14 @@ def test_detect_browsers_presence_only(tmp_path, monkeypatch):
     found = bvc.detect_browsers(home=str(tmp_path))
     assert "firefox" in found
     assert "chrome" not in found          # its dir does not exist
+
+
+def test_downloads_dir_prefers_existing(tmp_path, monkeypatch):
+    (tmp_path / "Downloads").mkdir()
+    monkeypatch.setattr(bvc.os.path, "expanduser", lambda p: str(tmp_path) if p == "~" else p)
+    assert bvc.downloads_dir().endswith("Downloads")
+
+
+def test_export_instructions_known_browser_mentions_export():
+    text = bvc.export_instructions("chrome")
+    assert "export" in text.lower()
