@@ -216,13 +216,14 @@ def classify_export(path):
     """Sniff a file's export kind by content (not filename). Returns one of
     'bitwarden_json', 'chromium_csv', 'firefox_csv', 'safari_csv', or None."""
     try:
-        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(path, 'r', encoding='utf-8-sig', errors='replace') as f:
             head = f.read(4096)
+            if head.lstrip().startswith('{'):
+                if '"items"' not in head:
+                    head += f.read(1_000_000)     # large folders preamble before items
+                return 'bitwarden_json' if '"items"' in head else None
     except OSError:
         return None
-    stripped = head.lstrip()
-    if stripped.startswith('{'):
-        return 'bitwarden_json' if '"items"' in head else None
     first_line = head.splitlines()[0].lower() if head.splitlines() else ''
     cols = {c.strip().strip('"') for c in first_line.split(',')}
     if {'url', 'username', 'password', 'httprealm'} <= cols:
@@ -268,7 +269,7 @@ def csv_to_items(path, kind):
     """Map a recognized browser CSV to Bitwarden login items (one per row, fresh uuid id)."""
     name_c, url_c, user_c, pass_c, note_c, source = _CSV_SCHEMA[kind]
     items = []
-    with open(path, 'r', encoding='utf-8', errors='replace', newline='') as f:
+    with open(path, 'r', encoding='utf-8-sig', errors='replace', newline='') as f:
         reader = csv.DictReader(f)
         lower = {fn: (fn or '').strip().lower() for fn in (reader.fieldnames or [])}
 
@@ -382,7 +383,7 @@ def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll
     while now() - start < timeout:
         hit = watch(expected_kinds, start)
         if hit:
-            info(f"  detected export: {hit}")
+            info(f"  detected export: {os.path.basename(hit)}")
             return hit
         if poll:
             _sleep(poll)
@@ -393,8 +394,9 @@ def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll
 
 
 def _real_watch(expected_kinds, since):
-    """Return the path of the newest CSV in Downloads/CWD modified after `since` whose sniffed
+    """Return the path of the NEWEST CSV in Downloads/CWD modified after `since` whose sniffed
     kind is in expected_kinds, else None."""
+    candidates = []
     for d in (downloads_dir(), os.getcwd()):
         if not os.path.isdir(d):
             continue
@@ -403,13 +405,14 @@ def _real_watch(expected_kinds, since):
                 continue
             p = os.path.join(d, name)
             try:
-                if os.path.getmtime(p) < since:
-                    continue
+                mtime = os.path.getmtime(p)
             except OSError:
                 continue
+            if mtime < since:
+                continue
             if classify_export(p) in expected_kinds:
-                return os.path.realpath(p)
-    return None
+                candidates.append((mtime, os.path.realpath(p)))
+    return max(candidates)[1] if candidates else None
 
 
 def _items_from(path, kind):
@@ -788,7 +791,7 @@ def print_summary(original, final, compromised, merged, removed, org_count, reus
 
 
 def get_output_filename(original):
-    base = Path(original).stem
+    base = Path(original).stem if original else "aggregated-vault"
     return f"{base}_cleaned_up_{TIMESTAMP}.json"
 
 def exclude_org_dupes(personal_entries, org_ids):
@@ -842,23 +845,20 @@ def main():
         if agg_counts:
             ui.table("Aggregated", [[k, v] for k, v in agg_counts.items()])
         # if a Bitwarden JSON was found and no vault was given, use it as the base
-        if not args.personal_vault:
+        if not args.personal_vault and sys.stdin.isatty():
             bw_jsons = [p for p, k in found if k == "bitwarden_json"]
-            if bw_jsons:
+            if bw_jsons and ui.confirm(f"Use {os.path.basename(bw_jsons[0])} as the Bitwarden base vault?"):
                 args.personal_vault = bw_jsons[0]
                 if len(bw_jsons) > 1:
                     ui.warn(f"Multiple Bitwarden exports found; using {os.path.basename(bw_jsons[0])}. "
-                            f"Others ignored: {[os.path.basename(p) for p in bw_jsons[1:]]}. "
-                            f"Pass the correct one explicitly if this is wrong.")
+                            f"Others ignored: {[os.path.basename(p) for p in bw_jsons[1:]]}.")
 
     if args.personal_vault:
         personal_data = load_vault(args.personal_vault)
         validate_vault(personal_data, args.personal_vault)
-    elif args.aggregate:
-        personal_data = {"encrypted": False, "folders": [], "items": []}
     else:
-        personal_data = load_vault(args.personal_vault)   # original behavior (will error cleanly)
-        validate_vault(personal_data, args.personal_vault)
+        # only reached when aggregating with no Bitwarden base found -> synthesize empty base
+        personal_data = {"encrypted": False, "folders": [], "items": []}
     org_data = load_vault(args.org_vault) if args.org_vault else {}
     if org_data:
         validate_vault(org_data, args.org_vault)
