@@ -10,7 +10,7 @@ Python script to clean, normalize, and deduplicate Bitwarden vault exports.  Mer
 
 ---
 
-## ❓ Why This Script Exists
+## Why This Script Exists
 
 Bitwarden is an open-source and secure password manager — but in terms of **vault hygiene**, it does very little beyond storing and retrieving entries (even that a bit inconsistenly anyway).
 
@@ -29,19 +29,19 @@ This becomes especially problematic when:
 - You’ve accumulated years of exported/imported data and vault merges
 
 ---
-## ✅ What This Script Does
+## What This Script Does
 
-- 📦 Processes **Bitwarden JSON (Decrypted)** exports
-- 🏷️ Automatically populates entires' "name" fields using a domain extracted from each entry’s "uri"
-- 🧠 Identifies and removes **identical entries** and applies a Deduplication algorithm to ⤵
-- 🔄 Merge multiple related web and mobile app logins (e.g., `com.app` + `website.www`)
-- 🗂 Assigns entries to folders based on usernames (if matching folder names already exist in the vault)
-- 🏢 Removes entries from the personal vault that also exist in an organization vault (if export provided)
-- 🕵️ Flags reused passwords as **potentially compromised** (in the notes field of each entry, visible in Bitwarden)
-- 📤 Outputs a clean, import-ready JSON file
-- 🔒 **Runs entirely locally** — no cloud services, no external logging
+- Processes **Bitwarden JSON (Decrypted)** exports
+- Automatically populates entires' "name" fields using a domain extracted from each entry’s "uri"
+- Identifies and removes **identical entries** and applies a deduplication algorithm to:
+- Merge multiple related web and mobile app logins (e.g., `com.app` + `website.www`)
+- Assigns entries to folders based on usernames (if matching folder names already exist in the vault)
+- Removes entries from the personal vault that also exist in an organization vault (if export provided)
+- Flags reused passwords as **potentially compromised** (in the notes field of each entry, visible in Bitwarden)
+- Outputs a clean, import-ready JSON file
+- **Runs entirely locally** — no cloud services, no external logging
 
-## 🔍 Deduplication Logic
+## Deduplication Logic
 
 This script uses a **multi-step logic** to deduplicate entries safely and intelligently.
 
@@ -51,40 +51,40 @@ It groups entries by:
 
 Once grouped, the script evaluates which entry to keep based on the following field priority:
 
-### 📌 Comparison Fields (in priority order)
+### Comparison Fields (in priority order)
 
-1. **lastUsedDate**  
+1. **lastUsedDate**
    If the entry contains `passwordHistory`, the script checks which password was used most recently.
 
-2. **revisionDate**  
+2. **revisionDate**
    The more recently revised entry is preferred — assuming it's more current.
 
-3. **Password uniqueness**  
+3. **Password uniqueness**
    - If one password is reused across other entries (will be considered potentially compromised), a unique passwords will be preferred.
    - Reused passwords are still retained if they have the newer revision date.
 
-4. **creationDate**  
+4. **creationDate**
    If all other fields are equal, the newest entry by creation timestamp is kept.
 
-5. **Fallback: first entry**  
+5. **Fallback: first entry**
    If all entries are identical in all relevant fields, the first one (sorted by ID) is kept and the rest are deleted.
 
 <details>
-<summary>🧠 Additional algorithm details here</summary>
+<summary>Additional algorithm details here</summary>
 
-- **Exact Matches**  
+- **Exact Matches**
   If multiple entries have the same URI, username, and password (including formatting), all but one are removed immediately without merging.
 
-- **URI Merging**  
+- **URI Merging**
   If entries are nearly identical (same credentials) but differ only by URI (e.g., app vs web), their URIs are combined into a single list and merged into the best entry.
 
-- **Ambiguous Cases**  
+- **Ambiguous Cases**
   If entries have the same `revisionDate` but different passwords and no clear winner, they are **all retained** and listed as "ambiguous" in the summary.
 
-- **Org Vault Preference**  
+- **Org Vault Preference**
   If an identical entry (by ID) exists in the organizational vault, the personal version is removed.
 
-- **Folder Assignment**  
+- **Folder Assignment**
   If a folder exists with a name that appears in the username, the entry is assigned to that folder.
 
 
@@ -93,12 +93,12 @@ This method prioritizes **safety**, **clarity**, and **maintainability** — no 
 All decision-making is logged visibly in the terminal, and a summary is printed at the end for user's review.
 </details>
 
-## 📋 Prerequisites
+## Prerequisites
 
 - Python 3.7 or newer (https://www.python.org/downloads)
 - One or more Bitwarden vault exports files in **JSON** format (unencrypted)
 
-## 🔐 Privacy & Security
+## Privacy & Security
 
 This script was designed with maximum privacy and security in mind:
 
@@ -107,35 +107,35 @@ This script was designed with maximum privacy and security in mind:
 - It does **not modify your original export**
 - It only writes one new cleaned JSON file
 
-You are in complete control.  
+You are in complete control.
 We strongly recommend reading the script before use — it is transparent and self-contained.
 ---
 
 
-## 🚀 How to Use
+## How to Use
 
-### Step 0️⃣ Prepare Your Environment
+### Step 0 Prepare Your Environment
 - Create a working folder
 - Download the script https://github.com/no84by/bitwarden-vault-cleanup/blob/main/bitwarden_vault_cleanup.py
 - Install Python (if needed)
 
 <details>
-<summary>💡 (Optional but recommended) Import all saved passwords from your browsers into Bitwarden</summary>
+<summary>(Optional but recommended) Import all saved passwords from your browsers into Bitwarden</summary>
 
 This step ensures that all credentials — even from browsers you may have forgotten about — are included in the cleanup process.
 
 #### Export login data from your browsers:
 
-- **Google Chrome / Microsoft Edge / Brave**:  
-  `Settings → Autofill → Password Manager → ⋮ (3-dot menu) → Export passwords`  
+- **Google Chrome / Microsoft Edge / Brave**:
+  `Settings → Autofill → Password Manager → ⋮ (3-dot menu) → Export passwords`
   → Save as a `.csv` file
 
-- **Mozilla Firefox**:  
-  `Logins and Passwords → ⋯ (top-right menu) → Export Logins`  
+- **Mozilla Firefox**:
+  `Logins and Passwords → ⋯ (top-right menu) → Export Logins`
   → Save as a `.csv` file
 
-- **Apple Safari (macOS)**:  
-  `Safari → Preferences → Passwords → ... → Export Passwords`  
+- **Apple Safari (macOS)**:
+  `Safari → Preferences → Passwords → ... → Export Passwords`
   → Save as a `.csv` file (you may need to enter your macOS password)
 
 #### Import into Bitwarden:
@@ -145,28 +145,28 @@ This step ensures that all credentials — even from browsers you may have forgo
 - Choose the appropriate browser or format from the dropdown
 - Upload your `.csv` file and complete the import
 
-> 🛑 Don’t worry about duplicates or messy entries — the cleanup script will take care of that.
+> Don’t worry about duplicates or messy entries — the cleanup script will take care of that.
 </details>
 
-### Step 1️⃣ Export Your Vaults
+### Step 1 Export Your Vaults
 Export your vault(s) using the official Bitwarden web vault:
 
-- Personal Vault:  
+- Personal Vault:
   `https://vault.bitwarden.com/#/tools/export`
 
-- Organization Vault (if applicable, and only with vault admin rights):  
+- Organization Vault (if applicable, and only with vault admin rights):
   `https://vault.bitwarden.com/#/organizations/<YOUR-ORG-ID>/settings/tools/export`
 
-> ⚠️ Choose the **“JSON”** format — **NOT** “JSON (Encrypted)”
+> Choose the **“JSON”** format — **NOT** “JSON (Encrypted)”
 
 
 
-### Step 2️⃣ Save Files Locally
+### Step 2 Save Files Locally
 Download both the **personal** and **organisation** vault export files (if applicable). Note the name of the files and where you saved them.
 
 
 
-### Step 3️⃣ Place Files with the Script
+### Step 3 Place Files with the Script
 Put `bitwarden_vault_cleanup.py` and your export file(s) in the **same folder**
 
 As a minimum your folder will cotain:
@@ -176,10 +176,10 @@ As a minimum your folder will cotain:
 
 
 
-### Step 4️⃣ Open Terminal / PowerShell and Navigate to That Folder
+### Step 4 Open Terminal / PowerShell and Navigate to That Folder
 Use `cd` command to move to the folder where your script and export files are saved.
 
-(example) 
+(example)
 ```powershell
 cd "$env:USERPROFILE\Downloads"
 ```
@@ -190,7 +190,7 @@ cd "$env:USERPROFILE\Desktop"
 
 
 
-### Step 5️⃣ Run the Script
+### Step 5 Run the Script
 Basic usage (personal vault only):
 
 ```powershell
@@ -207,7 +207,7 @@ Dry run (preview only, no file written):
 python bitwarden_vault_cleanup.py vault_export.json --dry-run
 ```
 
-Help: 
+Help:
 ```powershell
 python bitwarden_vault_cleanup.py --help
 ```
@@ -218,7 +218,7 @@ python bitwarden_vault_cleanup.py vault_export.json vault_org_export.json  > out
 ```
 
 
-### Step 6️⃣ Review the Output
+### Step 6 Review the Output
 Console output will display the progress
 - Initial personal entries
 - Organizational entries provided
@@ -226,7 +226,7 @@ Console output will display the progress
 - Entires with potentially compromised passwords
 - Duplicate entries merged
 - Duplicate entries removed
-- Ambiguous entries retained           
+- Ambiguous entries retained
 - Ommited login entries that slipped cleanup
 - Final kept entries (for import)
 - Final vault item type breakdown:
@@ -418,7 +418,7 @@ The script creates in the same folder a new JSON file named like: `originalfilen
 
 
 
-### Step 7️⃣ Purge Your Old Vault (Recommended)
+### Step 7 Purge Your Old Vault (Recommended)
 
 To avoid duplication or leftover clutter, purge your existing vault before importing the cleaned one.
 
@@ -426,12 +426,12 @@ Visit: https://vault.bitwarden.com/#/settings/account
 
 Scroll to “Purge Vault”, indtroduce masterpassword and confirm
 
-> ⚠️ This action is irreversible — only do this if you're happy with the cleaned export or you still have access to the file you exported at step 1️⃣ Export Your Vaults
+> This action is irreversible — only do this if you're happy with the cleaned export or you still have access to the file you exported at step 1 Export Your Vaults
 
 
 
 
-### Step 8️⃣ Import the Cleaned Vault
+### Step 8 Import the Cleaned Vault
 
 Visit: https://vault.bitwarden.com/#/tools/import
 
@@ -439,35 +439,35 @@ Choose Format: “JSON”
 
 Upload the cleaned file you just generated
 
-> 📌 Make sure you upload the one with the latest timestamp.
+> Make sure you upload the one with the latest timestamp.
 
 
 
 
-### Step 9️⃣ Not Happy with the Results?
+### Step 9 Not Happy with the Results?
 
 No problem. You can always:
 
-- Restart from Step 7️⃣ Purge Your New Vaul
-- This time, at step 8️⃣ import the original vault_export.json file you exported at step 1️⃣ Export Your Vaults
+- Restart from Step 7 Purge Your New Vaul
+- This time, at step 8 import the original vault_export.json file you exported at step 1 Export Your Vaults
 
 You're fully in control of what gets imported.
 
 
-### 🔟 Clean Up Your Files (Highly Recommended)
+### Clean Up Your Files (Highly Recommended)
 
 Once you're happy with your cleaned vault and have successfully imported it into Bitwarden:
 
-> 🧽 **Delete all exported `.json` files** from your computer — both the original and the cleaned version.
+> **Delete all exported `.json` files** from your computer — both the original and the cleaned version.
 
 These files contain all your credentials in plain text and can be dangerous if left behind.
 
-## 📌 Passwords stored in plaintext are a major security risk.  
+## Passwords stored in plaintext are a major security risk.
 Always remove export files when you're done.
 
 
 ---
-## 📋 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
 
@@ -476,12 +476,12 @@ You are free to:
 - Modify and redistribute it
 - Adapt it to your needs
 
-The license also includes a liability disclaimer:  
+The license also includes a liability disclaimer:
 **You use this script at your own risk.**
 
 ---
 
-## 🙋‍♂️ Disclaimer
+## Disclaimer
 
 This script was a one-off approach to solve a personal problem. If it works for you great... I'm happy for you. It's highly unlikely that I will maintain this script therefore this tool is provided **AS IS**, with **no support**, **no guarantees**, and **no warranty**.
 
@@ -490,5 +490,5 @@ You are responsible for:
 - Inspecting the cleaned output before importing it
 - Verifying that your vault behaves as expected after re-import
 
-Always test with non-critical data if you're unsure.  
+Always test with non-critical data if you're unsure.
 When in doubt, revert using your original export json.
