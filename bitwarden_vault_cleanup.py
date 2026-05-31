@@ -99,6 +99,8 @@ def parse_args_or_prompt():
     parser.add_argument('personal_vault', nargs='?', help='Path to personal Bitwarden vault export (JSON)')
     parser.add_argument('org_vault', nargs='?', help='Optional path to organization Bitwarden vault export (JSON)')
     parser.add_argument('--dry-run', action='store_true', help='Preview changes without saving output')
+    parser.add_argument('--aggregate', action='store_true',
+                        help='Detect installed browsers and aggregate their exports + the vault')
     parser.add_argument('--help', action='store_true', help='Show step-by-step usage help')
 
     args = parser.parse_args()
@@ -107,7 +109,7 @@ def parse_args_or_prompt():
         print_detailed_help()
         sys.exit(0)
 
-    if not args.personal_vault:
+    if not args.personal_vault and not args.aggregate:
         if not sys.stdin.isatty():
             sys.exit("[ERROR] No personal vault path given and stdin is not interactive. "
                      "Pass the export path as an argument.")
@@ -390,6 +392,26 @@ def collect_source(browser, expected_kinds, watch, ask, now, timeout=180.0, poll
     resp = ask(f"  No {browser} export detected. Paste a path, or press Enter to skip: ").strip()
     if resp and os.path.isfile(resp):
         return resp
+    return None
+
+
+def _real_watch(expected_kinds, since):
+    """Return the path of the newest CSV in Downloads/CWD modified after `since` whose sniffed
+    kind is in expected_kinds, else None."""
+    for d in (downloads_dir(), os.getcwd()):
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            if not name.lower().endswith('.csv'):
+                continue
+            p = os.path.join(d, name)
+            try:
+                if os.path.getmtime(p) < since:
+                    continue
+            except OSError:
+                continue
+            if classify_export(p) in expected_kinds:
+                return os.path.realpath(p)
     return None
 
 
@@ -795,14 +817,51 @@ def write_output(output_file, personal_data):
 
 def main():
     args = parse_args_or_prompt()
-    personal_data = load_vault(args.personal_vault)
-    validate_vault(personal_data, args.personal_vault)
+    aggregated_items = []
+    if args.aggregate:
+        ui = get_ui()
+        installed = detect_browsers()
+        found = scan_for_exports([downloads_dir(), os.getcwd()])
+
+        def _confirm(found, installed):
+            ui.heading("Aggregate passwords from your browsers")
+            ui.table("Detected installed browsers",
+                     [[b] for b in sorted(installed)] or [["(none)"]])
+            ui.table("Existing export files found",
+                     [[os.path.basename(p), k] for p, k in found] or [["(none)", ""]])
+            if not sys.stdin.isatty():
+                return False
+            return ui.confirm("Aggregate browser exports + a Bitwarden export into one "
+                              "cleaned vault?")
+
+        def _collect(browser, kinds):
+            return collect_source(browser, expected_kinds=kinds, watch=_real_watch,
+                                  ask=ui.ask, now=time.time, info=ui.info)
+
+        aggregated_items, agg_counts = aggregate_sources(found, installed, _confirm, _collect)
+        if agg_counts:
+            ui.table("Aggregated", [[k, v] for k, v in agg_counts.items()])
+        # if a Bitwarden JSON was found and no vault was given, use it as the base
+        if not args.personal_vault:
+            for path, kind in found:
+                if kind == "bitwarden_json":
+                    args.personal_vault = path
+                    break
+
+    if args.personal_vault:
+        personal_data = load_vault(args.personal_vault)
+        validate_vault(personal_data, args.personal_vault)
+    elif args.aggregate:
+        personal_data = {"encrypted": False, "folders": [], "items": []}
+    else:
+        personal_data = load_vault(args.personal_vault)   # original behavior (will error cleanly)
+        validate_vault(personal_data, args.personal_vault)
     org_data = load_vault(args.org_vault) if args.org_vault else {}
     if org_data:
         validate_vault(org_data, args.org_vault)
 
     folders = personal_data.get('folders', [])
-    personal_items = personal_data.get('items', [])
+    personal_items = personal_data.get('items', []) + aggregated_items
     non_login_items = [e for e in personal_items if 'login' not in e]
     # Passkey-bearing logins are EXCLUDED from dedup (so a merge can never drop a passkey)
     # and passed through untouched. Only non-passkey logins are deduplicated.
