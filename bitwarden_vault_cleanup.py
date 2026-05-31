@@ -208,6 +208,27 @@ def load_vault(file_path):
         print(f"\n[ERROR] File is not valid JSON: '{file_path}'")
         sys.exit(1)
 
+def classify_export(path):
+    """Sniff a file's export kind by content (not filename). Returns one of
+    'bitwarden_json', 'chromium_csv', 'firefox_csv', 'safari_csv', or None."""
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            head = f.read(4096)
+    except OSError:
+        return None
+    stripped = head.lstrip()
+    if stripped.startswith('{'):
+        return 'bitwarden_json' if '"items"' in head else None
+    first_line = head.splitlines()[0].lower() if head.splitlines() else ''
+    cols = {c.strip().strip('"') for c in first_line.split(',')}
+    if {'name', 'url', 'username', 'password'} <= cols:
+        return 'chromium_csv'
+    if {'url', 'username', 'password'} <= cols and 'httprealm' in cols:
+        return 'firefox_csv'
+    if {'title', 'url', 'username', 'password'} <= cols:
+        return 'safari_csv'
+    return None
+
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
     lossy 'cleaned' file the user re-imports over a purged vault."""
