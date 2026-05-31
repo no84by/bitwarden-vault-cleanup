@@ -358,11 +358,8 @@ _EXPORT_STEPS = {
 
 
 def downloads_dir():
-    """OS-aware Downloads directory; falls back to CWD if it does not exist."""
-    if platform.system() == "Windows":
-        cand = os.path.join(os.path.expanduser("~"), "Downloads")
-    else:
-        cand = os.path.join(os.path.expanduser("~"), "Downloads")
+    """Downloads directory (expanduser resolves USERPROFILE on Windows); falls back to CWD."""
+    cand = os.path.join(os.path.expanduser("~"), "Downloads")
     return cand if os.path.isdir(cand) else os.getcwd()
 
 
@@ -439,6 +436,8 @@ def aggregate_sources(found, installed, confirm, collect):
     browser_kind = {"chrome": "chromium_csv", "edge": "chromium_csv", "brave": "chromium_csv",
                     "opera": "chromium_csv", "vivaldi": "chromium_csv",
                     "firefox": "firefox_csv", "safari": "safari_csv"}
+    # One file per CSV schema is enough: same-schema browsers (e.g. all Chromium variants) share
+    # the column layout and dedup collapses identical rows. Skip a kind we already have a file for.
     for b in sorted(installed):
         kind = browser_kind.get(b)
         if not kind or kind in present_kinds:   # unknown, or we already have a file of this kind
@@ -824,13 +823,14 @@ def main():
         found = scan_for_exports([downloads_dir(), os.getcwd()])
 
         def _confirm(found, installed):
+            if not sys.stdin.isatty():
+                ui.info("(non-interactive: browser aggregation skipped)")
+                return False
             ui.heading("Aggregate passwords from your browsers")
             ui.table("Detected installed browsers",
                      [[b] for b in sorted(installed)] or [["(none)"]])
             ui.table("Existing export files found",
                      [[os.path.basename(p), k] for p, k in found] or [["(none)", ""]])
-            if not sys.stdin.isatty():
-                return False
             return ui.confirm("Aggregate browser exports + a Bitwarden export into one "
                               "cleaned vault?")
 
@@ -843,10 +843,13 @@ def main():
             ui.table("Aggregated", [[k, v] for k, v in agg_counts.items()])
         # if a Bitwarden JSON was found and no vault was given, use it as the base
         if not args.personal_vault:
-            for path, kind in found:
-                if kind == "bitwarden_json":
-                    args.personal_vault = path
-                    break
+            bw_jsons = [p for p, k in found if k == "bitwarden_json"]
+            if bw_jsons:
+                args.personal_vault = bw_jsons[0]
+                if len(bw_jsons) > 1:
+                    ui.warn(f"Multiple Bitwarden exports found; using {os.path.basename(bw_jsons[0])}. "
+                            f"Others ignored: {[os.path.basename(p) for p in bw_jsons[1:]]}. "
+                            f"Pass the correct one explicitly if this is wrong.")
 
     if args.personal_vault:
         personal_data = load_vault(args.personal_vault)
