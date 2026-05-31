@@ -63,3 +63,12 @@ def test_csv_to_items_firefox_and_safari_columns():
     assert ff["name"] == "site.org"
     sf = bvc.csv_to_items(os.path.join(FX, "safari.csv"), "safari_csv")[0]
     assert sf["login"]["username"] == "dave" and sf["name"] == "MyBank"
+
+
+def test_detect_browsers_presence_only(tmp_path, monkeypatch):
+    # create a fake firefox profile dir under a fake linux home
+    (tmp_path / ".mozilla" / "firefox").mkdir(parents=True)
+    monkeypatch.setattr(bvc.platform, "system", lambda: "Linux")
+    found = bvc.detect_browsers(home=str(tmp_path))
+    assert "firefox" in found
+    assert "chrome" not in found          # its dir does not exist

@@ -301,6 +301,43 @@ def csv_to_items(path, kind):
     return items
 
 
+# Presence-only detection: per-OS profile dirs (relative to the user's home / appdata).
+# We check ONLY that the directory exists. We never open, read, copy, or decrypt any file in it.
+BROWSERS = {
+    "firefox":  {"linux": ".mozilla/firefox", "darwin": "Library/Application Support/Firefox",
+                 "windows": "AppData/Roaming/Mozilla/Firefox"},
+    "chrome":   {"linux": ".config/google-chrome", "darwin": "Library/Application Support/Google/Chrome",
+                 "windows": "AppData/Local/Google/Chrome/User Data"},
+    "edge":     {"linux": ".config/microsoft-edge", "darwin": "Library/Application Support/Microsoft Edge",
+                 "windows": "AppData/Local/Microsoft/Edge/User Data"},
+    "brave":    {"linux": ".config/BraveSoftware/Brave-Browser",
+                 "darwin": "Library/Application Support/BraveSoftware/Brave-Browser",
+                 "windows": "AppData/Local/BraveSoftware/Brave-Browser/User Data"},
+    "opera":    {"linux": ".config/opera", "darwin": "Library/Application Support/com.operasoftware.Opera",
+                 "windows": "AppData/Roaming/Opera Software/Opera Stable"},
+    "vivaldi":  {"linux": ".config/vivaldi", "darwin": "Library/Application Support/Vivaldi",
+                 "windows": "AppData/Local/Vivaldi/User Data"},
+    "safari":   {"darwin": "Library/Safari"},
+}
+
+_OS_KEY = {"Linux": "linux", "Darwin": "darwin", "Windows": "windows"}
+
+
+def detect_browsers(home=None):
+    """Return the set of installed browsers, by profile-directory EXISTENCE only.
+    Never reads any file inside those directories."""
+    home = home or os.path.expanduser("~")
+    osk = _OS_KEY.get(platform.system())
+    found = set()
+    if not osk:
+        return found
+    for name, paths in BROWSERS.items():
+        rel = paths.get(osk)
+        if rel and os.path.isdir(os.path.join(home, rel)):
+            found.add(name)
+    return found
+
+
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
     lossy 'cleaned' file the user re-imports over a purged vault."""
