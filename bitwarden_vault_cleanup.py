@@ -67,6 +67,8 @@ import re
 import argparse
 import platform
 import time
+import csv
+import uuid
 if platform.system() == "Windows":
     os.system("chcp 65001 >nul")
     sys.stdout.reconfigure(encoding='utf-8')
@@ -247,6 +249,57 @@ def scan_for_exports(dirs):
             if kind:
                 out.append((path, kind))
     return out
+
+# column maps: kind -> (name_col, url_col, user_col, pass_col, note_col, source_label)
+_CSV_SCHEMA = {
+    "chromium_csv": ("name", "url", "username", "password", "note", "chromium"),
+    "firefox_csv": (None, "url", "username", "password", None, "firefox"),
+    "safari_csv": ("title", "url", "username", "password", "notes", "safari"),
+}
+
+
+def _host(url):
+    return normalize_uri(url) if url else ""
+
+
+def csv_to_items(path, kind):
+    """Map a recognized browser CSV to Bitwarden login items (one per row, fresh uuid id)."""
+    name_c, url_c, user_c, pass_c, note_c, source = _CSV_SCHEMA[kind]
+    items = []
+    with open(path, 'r', encoding='utf-8', errors='replace', newline='') as f:
+        reader = csv.DictReader(f)
+        lower = {fn: (fn or '').strip().lower() for fn in (reader.fieldnames or [])}
+
+        def get(row, col):
+            if not col:
+                return ''
+            for orig, low in lower.items():
+                if low == col:
+                    return (row.get(orig) or '').strip()
+            return ''
+        for row in reader:
+            url = get(row, url_c)
+            name = get(row, name_c) or _host(url) or "(imported)"
+            note = get(row, note_c)
+            tag = f"[source: {source}]"
+            notes = (note + "\n" + tag).strip() if note else tag
+            items.append({
+                "id": str(uuid.uuid4()),
+                "organizationId": None,
+                "folderId": None,
+                "type": 1,
+                "name": name,
+                "notes": notes,
+                "login": {
+                    "uris": [{"uri": url, "match": None}] if url else None,
+                    "username": get(row, user_c) or None,
+                    "password": get(row, pass_c) or None,
+                    "totp": None,
+                    "fido2Credentials": [],
+                },
+            })
+    return items
+
 
 def validate_vault(data, file_path):
     """Refuse anything that is not a plaintext Bitwarden JSON export, so we never write a
