@@ -35,3 +35,30 @@ def test_scan_for_exports_finds_and_classifies(tmp_path):
     found = bvc.scan_for_exports([str(tmp_path)])
     kinds = sorted(k for _, k in found)
     assert kinds == ["bitwarden_json", "chromium_csv"]   # random.csv (None) excluded
+
+
+def test_csv_to_items_chromium_maps_fields_and_assigns_uuid():
+    items = bvc.csv_to_items(os.path.join(FX, "chromium.csv"), "chromium_csv")
+    assert len(items) == 2
+    a = items[0]
+    assert a["type"] == 1
+    assert a["login"]["username"] == "alice"
+    assert a["login"]["password"] == "pw1"
+    assert a["login"]["uris"][0]["uri"] == "https://example.com"
+    assert a["login"]["fido2Credentials"] == []
+    assert len(a["id"]) == 36 and a["id"].count("-") == 4   # uuid4
+    assert "[source: chromium]" in (a["notes"] or "")
+
+
+def test_csv_to_items_row_without_url_has_no_uris():
+    items = bvc.csv_to_items(os.path.join(FX, "chromium.csv"), "chromium_csv")
+    nourl = items[1]                       # the NoUrlRow fixture row
+    assert nourl["login"]["uris"] is None
+    assert nourl["login"]["username"] == "bob"
+
+
+def test_csv_to_items_firefox_and_safari_columns():
+    ff = bvc.csv_to_items(os.path.join(FX, "firefox.csv"), "firefox_csv")[0]
+    assert ff["login"]["username"] == "carol" and ff["login"]["uris"][0]["uri"] == "https://site.org"
+    sf = bvc.csv_to_items(os.path.join(FX, "safari.csv"), "safari_csv")[0]
+    assert sf["login"]["username"] == "dave" and sf["name"] == "MyBank"
