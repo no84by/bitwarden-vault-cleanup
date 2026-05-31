@@ -1,0 +1,5 @@
+{"encrypted": false, "folders": [], "items": [
+  {"id": "11111111-1111-1111-1111-111111111111", "type": 1, "name": "example.com",
+   "notes": null, "login": {"uris": [{"uri": "https://example.com", "match": null}],
+   "username": "alice", "password": "pw1", "totp": null, "fido2Credentials": []}}
+]}
