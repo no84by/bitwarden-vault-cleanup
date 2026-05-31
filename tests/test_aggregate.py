@@ -130,3 +130,25 @@ def test_aggregate_sources_declined_returns_empty():
     items, sources = bvc.aggregate_sources(found=[], installed=set(),
                                            confirm=lambda *_: False, collect=lambda *a, **k: None)
     assert items == [] and sources == {}
+
+
+def test_end_to_end_aggregate_then_dedup_collapses_overlap():
+    # bitwarden.json has example.com/alice/pw1; chromium.csv ALSO has example.com/alice/pw1
+    # (exact dup -> collapses) plus NoUrlRow/bob (browser-only -> preserved via passthrough)
+    bw_items = bvc.load_vault(os.path.join(FX, "bitwarden.json"))["items"]
+    browser_items, _ = bvc.aggregate_sources(
+        found=[(os.path.join(FX, "chromium.csv"), "chromium_csv")],
+        installed=set(), confirm=lambda *_: True, collect=lambda *a, **k: None)
+    items = bw_items + browser_items
+    non_login = [e for e in items if 'login' not in e]
+    passkey = [e for e in items if 'login' in e and bvc.has_passkey(e)]
+    dedup_in = [e for e in items if 'login' in e and not bvc.has_passkey(e)]
+    no_url = [e for e in dedup_in if not e['login'].get('uris')]
+    with_url = [e for e in dedup_in if e['login'].get('uris')]
+    cleaned, _skipped = bvc.clean_entries(with_url, [])
+    reused = bvc.index_passwords(cleaned)
+    deduped, merged, removed = bvc.deduplicate(cleaned, reused)
+    names = sorted(e['name'] for e in deduped)
+    assert "example.com" in names
+    assert removed == 1                       # the exact duplicate was removed
+    assert any(e['login'].get('username') == 'bob' for e in no_url)   # browser-only preserved
