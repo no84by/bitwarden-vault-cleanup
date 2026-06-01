@@ -1,5 +1,12 @@
 # Compatibility
 
+## Servers: Bitwarden and Vaultwarden
+
+This tool is **server-agnostic** — it processes the exported vault JSON, never talks to a server.
+That format is the same on **bitwarden.com** and on **self-hosted Vaultwarden** (and any
+Bitwarden-API-compatible server), so the tool works identically with all of them. Export from
+whichever web vault you use; the steps and JSON layout match.
+
 ## Bitwarden export schema support
 
 | `bw` / Bitwarden era | Item types | Passkeys | SSH keys | Status |
