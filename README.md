@@ -1,5 +1,5 @@
 # bitwarden-vault-cleanup
-Python script to clean, normalize, and deduplicate Bitwarden vault exports.  Merges related entries, removes identical duplicates, excludes organization vault items, and outputs an import-ready JSON file —  all while running locally, without storing, transmitting, or collecting any sensitive data. An one commmand-line, low-tech skill, and fully under user control solution — no cloud magic, ai or some else's webpage.
+Python script to clean, normalize, and deduplicate Bitwarden/Vaultwarden vault exports.  Merges related entries, removes identical duplicates, excludes organization vault items, and outputs an import-ready JSON file —  all while running locally, without storing, transmitting, or collecting any sensitive data. An one commmand-line, low-tech skill, and fully under user control solution — no cloud magic, ai or some else's webpage.
 
 **Works with Bitwarden _and_ Vaultwarden** (and any Bitwarden-compatible server). It operates on
 the standard exported vault JSON, which is identical whether you export from bitwarden.com or a
