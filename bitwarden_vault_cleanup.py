@@ -787,11 +787,22 @@ def get_output_filename(original):
     base = Path(original).stem if original else "aggregated-vault"
     return f"{base}_cleaned_up_{TIMESTAMP}.json"
 
-def exclude_org_dupes(personal_entries, org_ids):
+def _content_fp(entry):
+    login = entry.get("login") or {}
+    uris = login.get("uris") or []
+    uri = normalize_uri(uris[0]["uri"]) if uris and uris[0].get("uri") else None
+    pw = login.get("password")
+    return (uri, login.get("username"), pw if isinstance(pw, str) else str(pw) if pw is not None else None)
+
+
+def exclude_org_dupes(personal_entries, org_items):
+    """Drop personal entries whose CONTENT (uri+username+password) matches an org item.
+    Matches by content fingerprint, not id (ids never match across exports)."""
+    org_fps = {_content_fp(o) for o in org_items if "login" in o and (o["login"].get("uris"))}
     kept = []
     for entry in personal_entries:
-        if entry['id'] in org_ids:
-            print(f"-> Removed personal entry already in org vault: {entry['name']} ({entry['id']})\n")
+        if "login" in entry and entry["login"].get("uris") and _content_fp(entry) in org_fps:
+            print(f"-> Removed personal entry already in org vault: {entry.get('name')} ({entry['id']})")
         else:
             kept.append(entry)
     return kept
@@ -864,7 +875,7 @@ def main():
     passkey_items = [e for e in personal_items if 'login' in e and has_passkey(e)]
     dedup_login_items = [e for e in personal_items if 'login' in e and not has_passkey(e)]
     org_items = org_data.get('items', []) if org_data else []
-    org_ids = {entry['id'] for entry in org_items} if org_items else set()
+
 
     cleaned_personal, skipped_entries = clean_entries(dedup_login_items, folders)
     compromised_passwords = index_passwords(cleaned_personal + org_items)
@@ -880,7 +891,7 @@ def main():
                 reused_counter[pw] += 1
 
     if org_items:
-        cleaned_personal = exclude_org_dupes(cleaned_personal, org_ids)
+        cleaned_personal = exclude_org_dupes(cleaned_personal, org_items)
 
     deduped, merged, removed = deduplicate(cleaned_personal, compromised_passwords)
     flag_reused_passwords(deduped, compromised_passwords)
