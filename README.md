@@ -203,46 +203,50 @@ As a minimum your folder will cotain:
 
 
 
-### Step 4 Open Terminal / PowerShell and Navigate to That Folder
-Use `cd` command to move to the folder where your script and export files are saved.
+> Runs on **Windows, macOS, and Linux** (Python 3.7+). The commands below are the same on every
+> OS — only the way you open a terminal and `cd` differs. Use `python` on Windows and `python3`
+> on macOS/Linux if `python` isn't found.
 
-(example)
+### Step 4 Open a Terminal and Navigate to That Folder
+Move to the folder where the script and your export file(s) are saved:
+
 ```powershell
+# Windows (PowerShell)
 cd "$env:USERPROFILE\Downloads"
 ```
-or
-```powershell
-cd "$env:USERPROFILE\Desktop"
+```bash
+# macOS / Linux
+cd ~/Downloads
 ```
-
-
 
 ### Step 5 Run the Script
 Basic usage (personal vault only):
-
-```powershell
+```bash
 python bitwarden_vault_cleanup.py vault_export.json
 ```
 
-With org vault:
-```powershell
+With org vault (drops personal entries that are content-identical to an org item):
+```bash
 python bitwarden_vault_cleanup.py vault_export.json vault_org_export.json
 ```
 
 Dry run (preview only, no file written):
-```powershell
+```bash
 python bitwarden_vault_cleanup.py vault_export.json --dry-run
 ```
 
 Help:
-```powershell
+```bash
 python bitwarden_vault_cleanup.py --help
 ```
 
-Output to file instead of on the terminal screen:
-```powershell
-python bitwarden_vault_cleanup.py vault_export.json vault_org_export.json  > output.log
+Aggregate installed browsers (optional, see the section above):
+```bash
+python bitwarden_vault_cleanup.py --aggregate
 ```
+
+(macOS/Linux: use `python3` if `python` is not found. Output redirection `> output.log` works on
+every OS.)
 
 
 ### Step 6 Review the Output
