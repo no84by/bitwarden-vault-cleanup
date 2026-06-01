@@ -1,6 +1,11 @@
 # bitwarden-vault-cleanup
 Python script to clean, normalize, and deduplicate Bitwarden vault exports.  Merges related entries, removes identical duplicates, excludes organization vault items, and outputs an import-ready JSON file —  all while running locally, without storing, transmitting, or collecting any sensitive data. An one commmand-line, low-tech skill, and fully under user control solution — no cloud magic, ai or some else's webpage.
 
+**Works with Bitwarden _and_ Vaultwarden** (and any Bitwarden-compatible server). It operates on
+the standard exported vault JSON, which is identical whether you export from bitwarden.com or a
+self-hosted Vaultwarden — so wherever this guide says "Bitwarden", your self-hosted Vaultwarden
+web vault works the same way.
+
 **Who this is for — the simple, entry-level option.** One file, download and run. No install,
 no CLI to learn, no accounts. You export your vault as JSON from the web vault, run the script,
 re-import the cleaned file. For more automation, see the rest of the family: **CLI** in-place dedup and **Auto** two-way
@@ -176,10 +181,11 @@ This step ensures that all credentials — even from browsers you may have forgo
 </details>
 
 ### Step 1 Export Your Vaults
-Export your vault(s) using the official Bitwarden web vault:
+Export your vault(s) from your **Bitwarden _or_ Vaultwarden** web vault. The paths are the same;
+on a self-hosted Vaultwarden just use your own domain (e.g. `https://vault.example.com/#/tools/export`):
 
 - Personal Vault:
-  `https://vault.bitwarden.com/#/tools/export`
+  `https://vault.bitwarden.com/#/tools/export` &nbsp;(or `https://<your-vaultwarden>/#/tools/export`)
 
 - Organization Vault (if applicable, and only with vault admin rights):
   `https://vault.bitwarden.com/#/organizations/<YOUR-ORG-ID>/settings/tools/export`
