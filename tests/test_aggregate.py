@@ -148,9 +148,13 @@ def test_end_to_end_aggregate_then_dedup_collapses_overlap():
     cleaned, _skipped = bvc.clean_entries(with_url, [])
     reused = bvc.index_passwords(cleaned)
     deduped, merged, removed = bvc.deduplicate(cleaned, reused)
-    names = sorted(e['name'] for e in deduped)
-    assert "example.com" in names
-    assert removed == 1                       # the exact duplicate was removed
+    # the overlap collapses 2 -> 1; because the browser copy carries a [source: chromium] note the
+    # Bitwarden copy lacks, it MERGES (lossless, preserving the tag) rather than dropping a copy.
+    # The surviving entry keeps the Bitwarden item as best, so match it by its example.com URI.
+    assert merged == 1 and removed == 0
+    example = next(e for e in deduped
+                   if any('example.com' in (u.get('uri') or '') for u in (e['login'].get('uris') or [])))
+    assert '[source:' in (example.get('notes') or '')
     assert any(e['login'].get('username') == 'bob' for e in no_url)   # browser-only preserved
 
 
