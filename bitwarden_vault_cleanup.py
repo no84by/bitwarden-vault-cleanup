@@ -678,12 +678,17 @@ def deduplicate(entries, compromised_passwords):
         print("\n--------------------------------------------\n")
         print(f"Evaluating group:\n {uri}\n  Username: {username}\n  Entries: {len(group)}")
 
-        all_same = all(
-            e['login']['password'] == group[0]['login']['password'] and
-            e.get('revisionDate') == group[0].get('revisionDate') and
-            e.get('creationDate') == group[0].get('creationDate')
-            for e in group
-        )
+        # Exact-dup test by CONTENT, not timestamps: keep-first (skip the merge) only when every
+        # member shares the same URI set, notes, TOTP and custom fields. Identical dates do NOT
+        # imply identical content, so a timestamp test would silently drop a dup's unique data.
+        def _content(e):
+            login = e.get('login') or {}
+            uris = tuple(sorted(u['uri'] for u in (login.get('uris') or []) if u.get('uri')))
+            flds = tuple(sorted((str(f.get('name')), str(f.get('value')), str(f.get('type')))
+                                for f in (e.get('fields') or [])))
+            return (uris, (e.get('notes') or '').strip(), login.get('totp'), flds)
+
+        all_same = len({_content(e) for e in group}) == 1
 
         if all_same:
             kept = group[0]
@@ -709,6 +714,23 @@ def deduplicate(entries, compromised_passwords):
         merged_notes = list(dict.fromkeys(merged_notes))
         best['notes'] = "\n\n".join(merged_notes) if merged_notes else None
 
+        # Union every entry's custom fields (dedup by name/value/type) so a merge never drops one.
+        merged_fields, seen_fields = [], set()
+        for e in group:
+            for f in (e.get('fields') or []):
+                key = (f.get('name'), f.get('value'), f.get('type'))
+                if key not in seen_fields:
+                    seen_fields.add(key)
+                    merged_fields.append(f)
+
+        # A login holds one TOTP seed: keep the best entry's active, but preserve any OTHER seed
+        # from a merged duplicate as a custom field rather than lose a 2FA secret.
+        best_totp = best['login'].get('totp')
+        for t in dict.fromkeys(e['login'].get('totp') for e in group):
+            if t and t != best_totp:
+                merged_fields.append({'name': 'totp (merged dup)', 'value': t, 'type': 1})
+        best['fields'] = merged_fields
+
         final_entries.append(best)
         merged += len(group) - 1
 
@@ -716,6 +738,8 @@ def deduplicate(entries, compromised_passwords):
         print(f"   |__ Total merged URIs: {len(merged_uris)}")
         if best.get('notes'):
             print(f"   |__ Notes retained ({len(best['notes'].splitlines())} lines)")
+        if merged_fields:
+            print(f"   |__ Custom fields retained: {len(merged_fields)}")
 
     ungrouped = [e for e in entries if e['id'] not in grouped_entry_ids]
     if ungrouped:
