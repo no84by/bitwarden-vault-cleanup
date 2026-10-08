@@ -12,6 +12,9 @@ Thanks to everyone who has improved bitwarden-vault-cleanup.
   no-URI login entries ([#1](https://github.com/no84by/bitwarden-vault-cleanup/issues/1));
   fixed in v2.0.1.
 
+- [@amahmud](https://github.com/almahmud) — provided an update suggestion for the cleaner
+  (2026-07).
+
 ---
 
 Reported a bug or suggested a fix? Open an issue and you'll be credited here.
