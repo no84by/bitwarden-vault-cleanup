@@ -12,10 +12,13 @@ re-import the cleaned file. For more automation, see the rest of the family: **C
 sync live in [bw-vault-tools](https://github.com/no84by/bw-vault-tools). This tool is the
 **Manual** branch — one file, no install, no terminal needed.
 
-> **v2.1 (2026-05)** — updated for the Bitwarden 2026.x export (SSH-key type 5 + passkey
-> detection/guard) and hardened for safety (rejects bad input, tolerates null URIs, 0600
-> output, no plaintext-password printing). The dedup algorithm and file-based workflow are
-> unchanged. See [`COMPATIBILITY.md`](COMPATIBILITY.md) and the release notes. Prefer the
+> **v2.3 (2026-10)** — contextual deduplication (issue #2): a real email identity collapses
+> across a site's sub-domains and URL forms to its registrable domain, while a role/generic
+> username stays pinned to the exact host, so separate tenants/ports of the same service are
+> never fused. Merged-away passwords are preserved (de-emphasized) and TOTP seeds are
+> containment-first (never lost). Safe for the Bitwarden 2026.x export (SSH-key type 5 +
+> passkey detection/guard, rejects bad input, tolerates null URIs, 0600 output, no
+> plaintext-password printing). See [`COMPATIBILITY.md`](COMPATIBILITY.md) and the release notes. Prefer the
 > terminal / want delta-apply or sync? See **[bw-vault-tools](https://github.com/no84by/bw-vault-tools)**.
 
 > **Download:** grab `bitwarden_vault_cleanup.py` directly from the

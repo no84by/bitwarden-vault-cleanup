@@ -2,10 +2,20 @@
 # bitwarden_vault_cleanup.py
 
 """
-Bitwarden Vault Cleanup Script (v2.1)
+Bitwarden Vault Cleanup Script (v2.3)
 ─────────────────────────────────────
 
 This script helps clean, normalize, and deduplicate Bitwarden vault exports.
+
+v2.3 (2026-10) — contextual deduplication (issue #2) + lossless credential retention:
+  - Grouping is contextual, not universal. A real email identity collapses across a site's
+    sub-domains and URL forms (account.x.com / www.x.com / http://) to its registrable domain;
+    a role/generic username (admin, support) stays pinned to the exact host so separate tenants
+    of the same service are never fused. Public-suffix awareness stops bare-TLD fusions
+    (fielddoctor.co.uk vs welcomebreak.co.uk would otherwise merge).
+  - Passwords from merged-away copies are preserved (in a "Previous passwords" custom field,
+    de-emphasized rather than lost or promoted). TOTP seeds are containment-first: a working 2FA
+    seed from any copy is never lost and is promoted to active if the survivor lacks one.
 
 v2.1 (2026-05) — safety + robustness hardening:
   - Refuses encrypted exports / non-Bitwarden JSON / missing 'items'; warns on a
@@ -553,6 +563,68 @@ def normalize_uri(uri):
     domain = uri.split('/')[0]
     return domain
 
+
+# --- Dedup identity model (contextual, never universal) -------------------------------------------------
+# A deduplication KEY must model reality, and reality differs by context:
+#   * a real email identity ("silviusandulache@gmail.com") is ONE person across a site's sub-domains
+#     and URL forms (account.x.com / www.x.com / http://), so those collapse to the registrable domain;
+#   * a role/generic username ("admin", "support") is NOT a reliable identity — on a multi-tenant estate
+#     like anneberg.net, support.x.net and careers.x.net are separate deployments that must NOT fuse.
+#     So those stay pinned to the exact host. There is no universal rule; the key adapts to the user.
+# The public-suffix subset below also stops us by accident grouping by a bare TLD (.co.uk, .com.au ...),
+# which would fuse unrelated sites that merely share a suffix (fielddoctor.co.uk vs welcomebreak.co.uk).
+_SLD = {'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'nat.uk', 'net.uk', 'ltd.uk', 'plc.uk',
+        'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au', 'co.jp', 'com.br', 'com.cn', 'com.mx',
+        'co.nz', 'co.za', 'com.tr', 'com.sg', 'com.hk', 'com.tw', 'com.ar', 'co.in', 'co.kr'}
+_ROLE_USER = {'admin', 'administrator', 'user', 'users', 'test', 'testing', 'root', 'info',
+              'support', 'sales', 'hello', 'mail', 'webmaster', 'postmaster', 'noreply',
+              'no-reply', 'contact', 'account', 'service', 'security', 'it', 'sysadmin',
+              'login', 'signin', 'wp-admin'}
+
+
+def _host(uri):
+    """scheme/www/numeric-port stripped host, so http vs https, www. and :port never split one site
+    (IPv6 hosts keep their colons because the post-':' part is not a bare integer)."""
+    uri = (uri or '').lower()
+    host = re.sub(r'^https?://', '', uri).split('/', 1)[0].split('#')[0].split('?')[0]
+    if ':' in host and host.rsplit(':', 1)[-1].isdigit():
+        host = host.rsplit(':', 1)[0]
+    if host.startswith('www.'):
+        host = host[4:]
+    return host.rstrip('/')
+
+
+def _registrable_host(host):
+    parts = host.split('.')
+    if len(parts) >= 3 and '.'.join(parts[-2:]) in _SLD:
+        return '.'.join(parts[-3:])
+    return '.'.join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def _canon_user(name):
+    """Lower-case a username; for emails also drop Gmail/Google '+' aliasing and '.' (Gmail ignores
+    them) so case and address variants collapse to one identity. Everything else is only lower-cased,
+    so the ONLY thing that can distinguish accounts after canon is genuine username/whitespace content."""
+    name = (name or '').strip()
+    if '@' in name:
+        local, _, dom = name.lower().partition('@')
+        if dom in ('gmail.com', 'googlemail.com'):
+            local = local.replace('.', '').split('+')[0]
+        elif dom in ('outlook.com', 'hotmail.com', 'live.com'):
+            local = local.split('+')[0]
+        return local + '@' + dom
+    return name.lower()
+
+
+def _is_identity_user(name):
+    """True when the username looks like a specific person's email (long local-part, not a role)."""
+    name = (name or '').strip()
+    if '@' not in name:
+        return False
+    local = name.split('@', 1)[0].lower()
+    return len(local) >= 4 and local not in _ROLE_USER
+
+
 def normalize_name(entry):
     if entry['name'] != '--':
         return entry['name']
@@ -659,19 +731,18 @@ def deduplicate(entries, compromised_passwords):
         if not login_data.get('uris'):
             continue  # Skip entries with no URIs
 
-        uri_key = normalize_uri(login_data['uris'][0]['uri'])
-        username = login_data.get('username')
-        password = login_data.get('password', '')
-
-        if not isinstance(password, str):
-            password = str(password)
-        password = password.strip()
-
-        key = (uri_key, username, password)
+        # Contextual key. A specific email identity collapses across the site's sub-domains and URL
+        # forms to its registrable domain; a role/generic username stays pinned to the exact host so
+        # separate tenants/ports of the same service are never fused (see the identity model above).
+        host = _host(login_data['uris'][0]['uri'])
+        user = _canon_user(login_data.get('username'))
+        key_host = (_registrable_host(host) if _is_identity_user(login_data.get('username'))
+                    else host)
+        key = (key_host, user)
         grouped[key].append(entry)
         grouped_entry_ids.add(entry['id'])
 
-    for (uri, username, password), group in grouped.items():
+    for (uri, username), group in grouped.items():
         if len(group) == 1:
             final_entries.append(group[0])
             continue
@@ -686,7 +757,10 @@ def deduplicate(entries, compromised_passwords):
             uris = tuple(sorted(u['uri'] for u in (login.get('uris') or []) if u.get('uri')))
             flds = tuple(sorted((str(f.get('name')), str(f.get('value')), str(f.get('type')))
                                 for f in (e.get('fields') or [])))
-            return (uris, (e.get('notes') or '').strip(), login.get('totp'), flds)
+            # A differing password now keeps the group out of the "exact-dup" shortcut so the older
+            # credential is preserved (de-emphasized) instead of being dropped like it used to be.
+            return (uris, (e.get('notes') or '').strip(), login.get('totp'),
+                    login.get('password') or '', flds)
 
         all_same = len({_content(e) for e in group}) == 1
 
@@ -725,10 +799,33 @@ def deduplicate(entries, compromised_passwords):
 
         # A login holds one TOTP seed: keep the best entry's active, but preserve any OTHER seed
         # from a merged duplicate as a custom field rather than lose a 2FA secret.
-        best_totp = best['login'].get('totp')
-        for t in dict.fromkeys(e['login'].get('totp') for e in group):
-            if t and t != best_totp:
-                merged_fields.append({'name': 'totp (merged dup)', 'value': t, 'type': 1})
+        # Preserve deprecated credentials from merged-away copies so nothing is lost: the active
+        # password stays the survivor's, while older ones are recorded in a clearly-labelled custom
+        # field (not the password field) — kept, but never promoted back to "the" password.
+        active_pw = best['login'].get('password') or ''
+        old_pws, seen_pws = [], set()
+        for e in group:
+            p = e['login'].get('password') or ''
+            if p and p != active_pw and p not in seen_pws:
+                seen_pws.add(p)
+                old_pws.append(p)
+        if old_pws:
+            merged_fields.append({'name': 'Previous passwords (deprecated)',
+                                  'value': ' | '.join(old_pws), 'type': 0})
+
+        # TOTP containment: keep the survivor's 2FA seed, but if it has none while a merged copy did,
+        # promote that seed to active so the user never loses a working authenticator secret. Any
+        # further distinct seeds beyond the active one are preserved as a deprecated custom field.
+        totps = [e['login'].get('totp') for e in group if e['login'].get('totp')]
+        active_totp = best['login'].get('totp')
+        if not active_totp and totps:
+            winner = max((e for e in group if e['login'].get('totp')),
+                         key=lambda e: e.get('revisionDate', ''))
+            best['login']['totp'] = winner['login']['totp']
+            active_totp = best['login']['totp']
+        for t in dict.fromkeys(totp for totp in totps):
+            if t and t != active_totp:
+                merged_fields.append({'name': 'TOTP seed (deprecated)', 'value': t, 'type': 1})
         best['fields'] = merged_fields
 
         final_entries.append(best)
