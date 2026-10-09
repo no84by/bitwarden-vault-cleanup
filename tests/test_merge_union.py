@@ -19,7 +19,9 @@ def test_merge_unions_fields_and_preserves_both_totps():
     assert merged == 1 and len(final) == 1
     m = final[0]
     assert {"recovery", "pin"} <= {f["name"] for f in m["fields"]}
-    seeds = {m["login"]["totp"]} | {f["value"] for f in m["fields"] if "totp" in f["name"]}
+    # deprecated fields are named "TOTP seed (deprecated)" (case-insensitive match; shared with
+    # bw-vault-tools cli_dedup, which never round-trips legacy seeds back into login.totp).
+    seeds = {m["login"]["totp"]} | {f["value"] for f in m["fields"] if "totp" in f["name"].lower()}
     assert {"SEED-A", "SEED-B"} <= seeds
 
 

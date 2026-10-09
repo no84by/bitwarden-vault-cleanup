@@ -717,6 +717,35 @@ def index_passwords(entries):
 
 
 
+def _password_date(entry, password):
+    """YYYY-MM-DD the given `password` was last used (from passwordHistory), falling back to the
+    entry's lastUsedDate then revisionDate; None if unknown."""
+    if password:
+        for h in entry.get('login', {}).get('passwordHistory') or []:
+            if h.get('password') == password and h.get('lastUsedDate'):
+                return _dateish(h['lastUsedDate'])
+    return _dateish(entry.get('lastUsedDate')) or _dateish(entry.get('revisionDate'))
+
+
+def _dateish(ts):
+    """ISO-8601 UTC string (ending 'Z') or epoch-ms/seconds number -> 'YYYY-MM-DD', or None."""
+    if ts is None:
+        return None
+    if isinstance(ts, (int, float)):
+        try:
+            from datetime import datetime, timezone
+            secs = ts / 1000.0 if abs(ts) >= 1e12 else float(ts)
+            return datetime.fromtimestamp(secs, tz=timezone.utc).date().isoformat()
+        except (ValueError, OverflowError, OSError):
+            return None
+    s = str(ts).strip()
+    if not s:
+        return None
+    if s.endswith('Z'):
+        s = s[:-1]
+    return s.split('T')[0] or None
+
+
 def deduplicate(entries, compromised_passwords):
     grouped = defaultdict(list)
     grouped_entry_ids = set()
@@ -800,18 +829,21 @@ def deduplicate(entries, compromised_passwords):
         # A login holds one TOTP seed: keep the best entry's active, but preserve any OTHER seed
         # from a merged duplicate as a custom field rather than lose a 2FA secret.
         # Preserve deprecated credentials from merged-away copies so nothing is lost: the active
-        # password stays the survivor's, while older ones are recorded in a clearly-labelled custom
-        # field (not the password field) — kept, but never promoted back to "the" password.
+        # password stays the survivor's, while older ones are recorded in a clearly-labelled, hidden
+        # custom field (type 1) with the date each was last used — not the password field — kept, but
+        # never promoted back to "the" password.
         active_pw = best['login'].get('password') or ''
-        old_pws, seen_pws = [], set()
+        old_pws = []            # list of (password, last_used_date or None)
+        seen_pws = set()
         for e in group:
             p = e['login'].get('password') or ''
             if p and p != active_pw and p not in seen_pws:
                 seen_pws.add(p)
-                old_pws.append(p)
+                old_pws.append((p, _password_date(e, p)))
         if old_pws:
+            value = ' | '.join(f'{p} ({d})' if d else str(p) for p, d in old_pws)
             merged_fields.append({'name': 'Previous passwords (deprecated)',
-                                  'value': ' | '.join(old_pws), 'type': 0})
+                                  'value': value, 'type': 1})
 
         # TOTP containment: keep the survivor's 2FA seed, but if it has none while a merged copy did,
         # promote that seed to active so the user never loses a working authenticator secret. Any
